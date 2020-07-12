@@ -192,26 +192,15 @@ impl<T: Ord + Clone + Default> KDistribute<T> {
         });
         assert!(splitters.len() >= _SPLITS);
 
-        let mut distribute = Self {
-            tree: Default::default(),
-        };
-        Self::set_tree_val(&mut distribute.tree, 0, splitters);
+        let mut tree: [T; _SPLITS] = Default::default();
+        tree.traverse_in_order()
+            .collect::<Vec<usize>>()
+            .into_iter()
+            .enumerate()
+            .for_each(|(i, j)| tree[j] = splitters[i].clone());
 
-        debug_assert!(distribute.tree.structure_check());
-        distribute
-    }
-
-    fn set_tree_val(tree: &mut [T; _SPLITS], idx: usize, splitters: &[T]) {
-        debug_assert!(idx < _SPLITS);
-        debug_assert!((splitters.len() + 1).is_power_of_two());
-
-        let mid = splitters.len() / 2;
-        tree[idx] = splitters[mid].clone();
-
-        if splitters.len() > 1 {
-            Self::set_tree_val(tree, 2 * idx + 1, &splitters[0..mid]);
-            Self::set_tree_val(tree, 2 * idx + 2, &splitters[(mid + 1)..splitters.len()]);
-        }
+        debug_assert!(tree.structure_check());
+        Self { tree }
     }
 }
 
