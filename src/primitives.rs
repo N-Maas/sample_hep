@@ -1,9 +1,19 @@
 use crate::params::*;
 
+use smallvec::{smallvec, SmallVec};
 use std::convert::{AsMut, AsRef};
-use std::{ops::IndexMut, mem};
+use std::marker::PhantomData;
+use std::{mem, ops::IndexMut};
 
 const _SPLITS: usize = _K - 1;
+
+// ----- traits ----- //
+
+pub trait Distribute<T: Ord> {
+    fn distribute(&self, el: &T) -> usize;
+
+    fn insert_splitter(&mut self, splitter: T) -> T;
+}
 
 enum TreeElement {
     Node(usize, usize),
@@ -18,9 +28,19 @@ where
 {
     fn len(&self) -> usize;
 
-    fn element_type(&self, index: usize) -> TreeElement;
-
     unsafe fn get_unchecked(&self, index: usize) -> &T;
+
+    fn element_type(&self, index: usize) -> TreeElement {
+        let high = self.len() / 2;
+        let low = (self.len() - 1) / 2;
+
+        match index {
+            i if i < low => TreeElement::Node(2 * i + 1, 2 * i + 2),
+            i if i < high => TreeElement::UnaryNode(2 * i + 1),
+            i if i < self.len() => TreeElement::Leaf,
+            i => panic!("Invalid index: {:?}", i),
+        }
+    }
 
     /// debugging
     fn structure_check(&self) -> bool {
@@ -73,23 +93,12 @@ where
     }
 }
 
-pub trait Distribute<T: Ord> {
-    fn distribute(&self, el: &T) -> usize;
 
-    fn insert_splitter(&mut self, splitter: T) -> T;
 }
 
 impl<T: Ord> TreeBuffer<T, [T]> for [T; _SPLITS] {
     fn len(&self) -> usize {
         _SPLITS
-    }
-
-    fn element_type(&self, index: usize) -> TreeElement {
-        match index {
-            i if i < (_SPLITS >> 1) => TreeElement::Node(2 * i + 1, 2 * i + 2),
-            i if i < _SPLITS => TreeElement::Leaf,
-            i => panic!("Invalid index: {:?}", i),
-        }
     }
 
     unsafe fn get_unchecked(&self, index: usize) -> &T {
@@ -125,7 +134,7 @@ impl<T: Ord + Clone + Default> KDistribute<T> {
         debug_assert!(idx < _SPLITS);
         debug_assert!((splitters.len() + 1).is_power_of_two());
 
-        let mid = splitters.len() >> 1;
+        let mid = splitters.len() / 2;
         tree[idx] = splitters[mid].clone();
 
         if splitters.len() > 1 {
@@ -161,11 +170,33 @@ impl<T: Ord> Distribute<T> for KDistribute<T> {
     }
 }
 
+impl<T: Ord> TreeBuffer<T, [T]> for SmallVec<[T; 5]> {
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    unsafe fn get_unchecked(&self, index: usize) -> &T {
+        self.as_ref().get_unchecked(index)
+    }
+}
+#[derive(Debug)]
+pub struct RDistribute<T: Ord> {
+    tree: SmallVec<[T; 5]>,
+}
+
+impl<T: Ord> RDistribute<T> {
+    pub fn new() -> Self {
+        Self {
+            tree: SmallVec::new(),
+        }
+    }
+}
+
 #[test]
 fn basic() {
     use std::iter::FromIterator;
 
-    let splitters = &Vec::from_iter(0.._K);
+    let splitters = &Vec::from_iter(1.._K);
     let distr = KDistribute::<usize>::new(splitters);
 
     for i in 0.._K {
@@ -177,7 +208,7 @@ fn basic() {
 fn move_subtree() {
     use std::iter::FromIterator;
 
-    let splitters = &Vec::from_iter(0.._K);
+    let splitters = &Vec::from_iter(1.._K);
     let mut distr = KDistribute::<usize>::new(splitters);
 
     assert_eq!(31, distr.insert_splitter(31));
