@@ -45,7 +45,11 @@ impl<T: Ord + Clone + Default> KDistribute<T> {
     pub fn distribute(&self, el: &T) -> usize {
         let mut idx = 0;
         for _ in 0..(_SPLITS.count_ones()) {
-            idx = 2 * idx + (if *el < self.tree[idx] { 1 } else { 2 });
+            debug_assert!(idx < self.tree.len());
+
+            // compiler seems unable to completely remove bound checks
+            let is_less = unsafe { el < self.tree.get_unchecked(idx) };
+            idx = 2 * idx + (if is_less { 1 } else { 2 });
         }
 
         debug_assert!(
