@@ -91,9 +91,80 @@ where
             }
         }
     }
+
+    fn traverse_in_order(&self) -> TreeIter<'_, Self, T, R> {
+        TreeIter {
+            tree: self,
+            stack: if self.len() > 0 {
+                smallvec![(0, DFSLabel::from(self.element_type(0)))]
+            } else {
+                SmallVec::new()
+            },
+            _t: PhantomData,
+            _r: PhantomData,
+        }
+    }
 }
 
+enum DFSLabel {
+    Both(usize, usize),
+    Left(usize),
+    Right(usize),
+    None,
+}
 
+impl From<TreeElement> for DFSLabel {
+    fn from(el: TreeElement) -> Self {
+        match el {
+            TreeElement::Node(l, r) => DFSLabel::Both(l, r),
+            TreeElement::UnaryNode(l) => DFSLabel::Left(l),
+            TreeElement::Leaf => DFSLabel::None,
+        }
+    }
+}
+
+struct TreeIter<'a, B: ?Sized, T: Ord, R: ?Sized + IndexMut<usize, Output = T>>
+where
+    B: TreeBuffer<T, R> + AsRef<R> + AsMut<R>,
+{
+    tree: &'a B,
+    // the TreeElement enum might be a bit misused here
+    stack: SmallVec<[(usize, DFSLabel); _SPLITS.count_ones() as usize]>,
+    _t: PhantomData<T>,
+    _r: PhantomData<R>,
+}
+
+impl<'a, B, T: Ord + 'a, R: ?Sized + IndexMut<usize, Output = T>> Iterator for TreeIter<'a, B, T, R>
+where
+    B: TreeBuffer<T, R> + AsRef<R> + AsMut<R>,
+{
+    type Item = usize;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let (i, state) = self.stack.pop()?;
+
+            match state {
+                DFSLabel::Both(left, right) => {
+                    self.stack.push((i, DFSLabel::Right(right)));
+                    self.stack
+                        .push((left, DFSLabel::from(self.tree.element_type(left))));
+                }
+                DFSLabel::Left(left) => {
+                    self.stack.push((i, DFSLabel::None));
+                    self.stack
+                        .push((left, DFSLabel::from(self.tree.element_type(left))));
+                }
+                DFSLabel::Right(right) => {
+                    self.stack
+                        .push((right, DFSLabel::from(self.tree.element_type(right))));
+                    return Some(i);
+                }
+                DFSLabel::None => return Some(i),
+            }
+            debug_assert!(!self.stack.spilled());
+        }
+    }
 }
 
 impl<T: Ord> TreeBuffer<T, [T]> for [T; _SPLITS] {
