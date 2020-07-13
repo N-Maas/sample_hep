@@ -1,9 +1,13 @@
 use crate::params::*;
 
 use smallvec::{smallvec, SmallVec};
-use std::convert::{AsMut, AsRef};
-use std::marker::PhantomData;
-use std::{mem, ops::IndexMut};
+use std::{
+    cmp::Ordering,
+    convert::{AsMut, AsRef},
+    marker::PhantomData,
+    mem,
+    ops::IndexMut,
+};
 
 const _SPLITS: usize = _K - 1;
 
@@ -104,6 +108,30 @@ where
             _r: PhantomData,
         }
     }
+
+    fn select_tree_index(&self, splitter_idx: usize) -> usize {
+        assert!(self.len() > 0);
+
+        let mut i = 0;
+        let (mut min, mut max) = (0, self.len());
+
+        loop {
+            let low = ((max - min) / 2 + 1).next_power_of_two() - 1;
+            let node_idx = min + low / 2 + usize::min((low + 1) / 2, max - min - low);
+
+            match splitter_idx.cmp(&node_idx) {
+                Ordering::Equal => return i,
+                Ordering::Less => {
+                    max = node_idx;
+                    i = 2 * i + 1;
+                }
+                Ordering::Greater => {
+                    min = node_idx + 1;
+                    i = 2 * i + 2;
+                }
+            }
+        }
+    }
 }
 
 enum DFSLabel {
@@ -162,6 +190,7 @@ where
                 }
                 DFSLabel::None => return Some(i),
             }
+            // Stack should be spilled only for extremely large data sets at the R-distribute.
             debug_assert!(!self.stack.spilled());
         }
     }
@@ -276,4 +305,19 @@ fn move_subtree() {
     assert_eq!(30, distr.insert_splitter(10));
     assert_eq!(29, distr.insert_splitter(15));
     assert_eq!(28, distr.insert_splitter(26));
+}
+
+#[test]
+fn traverse() {
+    use std::iter::FromIterator;
+
+    let splitters = &Vec::from_iter(0.._K - 1);
+    let distr = KDistribute::<usize>::new(splitters);
+
+    println!("{:?}", distr);
+    distr
+        .tree
+        .traverse_in_order()
+        .enumerate()
+        .for_each(|(i, j)| assert_eq!(j, distr.tree.select_tree_index(i)));
 }
