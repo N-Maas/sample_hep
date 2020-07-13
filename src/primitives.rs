@@ -281,43 +281,83 @@ impl<T: Ord> RDistribute<T> {
     }
 }
 
-#[test]
-fn basic() {
-    use std::iter::FromIterator;
+impl<T: Ord + Clone> RDistribute<T> {
+    // adds a splitter at the last index
+    pub fn add_splitter(&mut self, s: T) {
+        let mut buffer = SmallVec::<[T; 5]>::new();
+        buffer.resize(self.tree.len(), s.clone());
 
-    let splitters = &Vec::from_iter(1.._K);
-    let distr = KDistribute::<usize>::new(splitters);
+        self.tree
+            .traverse_in_order()
+            .enumerate()
+            .for_each(|(i, j)| {
+                buffer[i] = self.tree[j].clone();
+            });
+        self.tree.push(s.clone());
+        buffer.push(s);
+        self.tree
+            .traverse_in_order()
+            .collect::<Vec<usize>>()
+            .into_iter()
+            .enumerate()
+            .for_each(|(i, j)| self.tree[j] = buffer[i].clone());
 
-    for i in 0.._K {
-        assert_eq!(i, distr.distribute(&i));
+        debug_assert!(self.tree.structure_check());
     }
 }
 
-#[test]
-fn move_subtree() {
+#[cfg(test)]
+mod test {
+    use super::*;
     use std::iter::FromIterator;
 
-    let splitters = &Vec::from_iter(1.._K);
-    let mut distr = KDistribute::<usize>::new(splitters);
+    #[test]
+    fn basic() {
+        let splitters = &Vec::from_iter(1.._K);
+        let distr = KDistribute::<usize>::new(splitters);
 
-    assert_eq!(31, distr.insert_splitter(31));
-    assert_eq!(31, distr.insert_splitter(0));
-    assert_eq!(30, distr.insert_splitter(10));
-    assert_eq!(29, distr.insert_splitter(15));
-    assert_eq!(28, distr.insert_splitter(26));
-}
+        for i in 0.._K {
+            assert_eq!(i, distr.distribute(&i));
+        }
+    }
 
-#[test]
-fn traverse() {
-    use std::iter::FromIterator;
+    #[test]
+    fn move_subtree() {
+        let splitters = &Vec::from_iter(1.._K);
+        let mut distr = KDistribute::<usize>::new(splitters);
 
-    let splitters = &Vec::from_iter(0.._K - 1);
-    let distr = KDistribute::<usize>::new(splitters);
+        assert_eq!(31, distr.insert_splitter(31));
+        assert_eq!(31, distr.insert_splitter(0));
+        assert_eq!(30, distr.insert_splitter(10));
+        assert_eq!(29, distr.insert_splitter(15));
+        assert_eq!(28, distr.insert_splitter(26));
+    }
 
-    println!("{:?}", distr);
-    distr
-        .tree
-        .traverse_in_order()
-        .enumerate()
-        .for_each(|(i, j)| assert_eq!(j, distr.tree.select_tree_index(i)));
+    #[test]
+    fn traverse_kway() {
+        use std::iter::FromIterator;
+
+        let splitters = &Vec::from_iter(0.._K - 1);
+        let distr = KDistribute::<usize>::new(splitters);
+
+        check_traverse(&distr.tree);
+    }
+
+    #[test]
+    fn traverse_rway() {
+        let mut distr = RDistribute::<usize>::new();
+
+        for i in 0..10 {
+            distr.add_splitter(i);
+            check_traverse(&distr.tree);
+        }
+    }
+
+    fn check_traverse<R: ?Sized + IndexMut<usize, Output = usize>>(
+        tree: &impl TreeBuffer<usize, R>,
+    ) {
+        tree.traverse_in_order()
+            .enumerate()
+            .for_each(|(i, j)| assert_eq!(j, tree.select_tree_index(i)));
+    }
 }
