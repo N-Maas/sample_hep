@@ -17,6 +17,8 @@ pub trait Distribute<T: Ord> {
     fn distribute(&self, el: &T) -> usize;
 
     fn insert_splitter(&mut self, splitter: T) -> T;
+
+    fn replace_splitter(&mut self, splitter: T, idx: usize) -> T;
 }
 
 enum TreeElement {
@@ -131,6 +133,13 @@ where
                 }
             }
         }
+    }
+
+    fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
+        let t_idx = self.select_tree_index(idx);
+        let result = mem::replace(&mut self.as_mut()[t_idx], splitter);
+        debug_assert!(self.structure_check());
+        result
     }
 }
 
@@ -257,6 +266,10 @@ impl<T: Ord> Distribute<T> for KDistribute<T> {
         debug_assert!(self.tree.structure_check());
         result
     }
+
+    fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
+        self.tree.replace_splitter(splitter, idx)
+    }
 }
 
 impl<T: Ord> TreeBuffer<T, [T]> for SmallVec<[T; 5]> {
@@ -278,6 +291,22 @@ impl<T: Ord> RDistribute<T> {
         Self {
             tree: SmallVec::new(),
         }
+    }
+}
+
+impl<T: Ord> Distribute<T> for RDistribute<T> {
+    fn distribute(&self, el: &T) -> usize {
+        todo!()
+    }
+
+    fn insert_splitter(&mut self, splitter: T) -> T {
+        let result = self.tree.insert_splitter_at_idx(splitter, 0);
+        debug_assert!(self.tree.structure_check());
+        result
+    }
+
+    fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
+        self.tree.replace_splitter(splitter, idx)
     }
 }
 
@@ -330,7 +359,8 @@ mod test {
         assert_eq!(31, distr.insert_splitter(0));
         assert_eq!(30, distr.insert_splitter(10));
         assert_eq!(29, distr.insert_splitter(15));
-        assert_eq!(28, distr.insert_splitter(26));
+        assert_eq!(28, distr.replace_splitter(100, 30));
+        assert_eq!(100, distr.insert_splitter(3));
     }
 
     #[test]
