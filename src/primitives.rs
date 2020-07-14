@@ -143,6 +143,13 @@ where
         debug_assert!(self.structure_check());
         result
     }
+
+    /// used for distribute
+    unsafe fn next_idx_unchecked(&self, el: &T, idx: usize) -> usize {
+        debug_assert!(idx < self.len());
+        let is_less = el < self.get_unchecked(idx);
+        2 * idx + (if is_less { 1 } else { 2 })
+    }
 }
 
 enum DFSLabel {
@@ -246,21 +253,17 @@ impl<T: Ord + Clone + Default> KDistribute<T> {
 
 impl<T: Ord> Distribute<T> for KDistribute<T> {
     fn distribute(&self, el: &T) -> usize {
-        let mut idx = 0;
-        for _ in 0..(_SPLITS.count_ones()) {
-            debug_assert!(idx < self.tree.len());
+        let len = self.tree.len();
 
+        let mut idx = 0;
+        for _ in 0..(len.count_ones()) {
             // compiler seems unable to completely remove bound checks
-            let is_less = unsafe { el < self.tree.get_unchecked(idx) };
-            idx = 2 * idx + (if is_less { 1 } else { 2 });
+            idx = unsafe { self.tree.next_idx_unchecked(el, idx) };
         }
 
-        debug_assert!(
-            idx >= _SPLITS && idx < 2 * _SPLITS + 1,
-            "Invalid result: {:?}",
-            idx
-        );
-        idx - _SPLITS
+        let result = idx - len;
+        debug_assert!(result <= len, "Invalid result: {:?}", result);
+        result
     }
 
     fn insert_splitter(&mut self, splitter: T) -> T {
@@ -298,7 +301,26 @@ impl<T: Ord> RDistribute<T> {
 
 impl<T: Ord> Distribute<T> for RDistribute<T> {
     fn distribute(&self, el: &T) -> usize {
-        todo!()
+        let len = self.tree.len();
+        let high = (len + 1).next_power_of_two() - 1;
+
+        let mut idx = 0;
+        for _ in 0..(high.count_ones() - 1) {
+            // compiler seems unable to completely remove bound checks
+            idx = unsafe { self.tree.next_idx_unchecked(el, idx) };
+        }
+
+        let result = {
+            if idx < len {
+                idx = unsafe { self.tree.next_idx_unchecked(el, idx) };
+                idx - high
+            } else {
+                idx + len + 1 - high
+            }
+        };
+
+        debug_assert!(result <= len, "Invalid result: {:?}", result);
+        result
     }
 
     fn insert_splitter(&mut self, splitter: T) -> T {
@@ -411,12 +433,25 @@ mod test {
     use std::iter::FromIterator;
 
     #[test]
-    fn basic() {
+    fn basic_kway() {
         let splitters = &Vec::from_iter(1.._K);
         let distr = KDistribute::<usize>::new(splitters);
 
         for i in 0.._K {
             assert_eq!(i, distr.distribute(&i));
+        }
+    }
+
+    #[test]
+    fn basic_rway() {
+        let mut distr = RDistribute::<usize>::new();
+
+        for i in 1..10 {
+            distr.add_splitter(i);
+
+            for j in 0..i {
+                assert_eq!(j, distr.distribute(&j));
+            }
         }
     }
 
@@ -447,7 +482,7 @@ mod test {
     fn traverse_rway() {
         let mut distr = RDistribute::<usize>::new();
 
-        for i in 0..10 {
+        for i in 1..10 {
             distr.add_splitter(i);
             check_traverse(&distr.tree);
         }
