@@ -1,9 +1,11 @@
 use crate::params::*;
 
+use arrayvec::ArrayVec;
 use smallvec::{smallvec, SmallVec};
 use std::{
     cmp::Ordering,
     convert::{AsMut, AsRef},
+    iter::FromIterator,
     marker::PhantomData,
     mem,
     ops::IndexMut,
@@ -11,7 +13,7 @@ use std::{
 
 const _SPLITS: usize = _K - 1;
 
-// ----- traits ----- //
+// ----- splitter primitives ----- //
 
 pub(crate) trait Distribute<T: Ord> {
     fn distribute(&self, el: &T) -> usize;
@@ -332,6 +334,74 @@ impl<T: Ord + Clone> RDistribute<T> {
             .for_each(|(i, j)| self.tree[j] = buffer[i].clone());
 
         debug_assert!(self.tree.structure_check());
+    }
+}
+
+// ----- sequence and group buffer primitives ----- //
+
+// TODO: more efficient implementation regarding allocations
+pub(crate) struct Sequence<T: Ord> {
+    data: Vec<T>,
+}
+
+impl<T: Ord> Sequence<T> {
+    pub(crate) fn new() -> Self {
+        Default::default()
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub(crate) fn push(&mut self, el: T) {
+        self.data.push(el)
+    }
+
+    pub(crate) fn append(&mut self, other: &mut Self) {
+        self.data.append(&mut other.data)
+    }
+
+    pub(crate) fn drain(&mut self) -> impl Iterator<Item = T> + '_ {
+        self.data.drain(0..)
+    }
+}
+
+impl<T: Ord> Default for Sequence<T> {
+    fn default() -> Self {
+        Self { data: Vec::new() }
+    }
+}
+
+impl<T: Ord> FromIterator<T> for Sequence<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        Self {
+            data: Vec::from_iter(iter),
+        }
+    }
+}
+
+pub(crate) struct GroupBuffer<T> {
+    data: ArrayVec<[T; _M]>,
+}
+
+impl<T: Ord> GroupBuffer<T> {
+    pub(crate) fn new() -> Self {
+        Self {
+            data: ArrayVec::new(),
+        }
+    }
+
+    pub(crate) fn is_full(&self) -> bool {
+        self.data.is_full()
+    }
+
+    // TODO: is a second bounds check elided?
+    pub(crate) fn push(&mut self, el: T) {
+        self.data.push(el)
+    }
+
+    pub(crate) fn drain(&mut self) -> impl Iterator<Item = T> + '_ {
+        self.data.drain(0..)
     }
 }
 
