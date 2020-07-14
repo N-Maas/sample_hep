@@ -13,7 +13,7 @@ const _SPLITS: usize = _K - 1;
 
 // ----- traits ----- //
 
-pub trait Distribute<T: Ord> {
+pub(crate) trait Distribute<T: Ord> {
     fn distribute(&self, el: &T) -> usize;
 
     fn insert_splitter(&mut self, splitter: T) -> T;
@@ -216,13 +216,13 @@ impl<T: Ord> TreeBuffer<T, [T]> for [T; _SPLITS] {
 }
 
 #[derive(Debug)]
-pub struct KDistribute<T: Ord> {
+pub(crate) struct KDistribute<T: Ord> {
     tree: [T; _SPLITS],
 }
 
 // TODO: default unnecessary
 impl<T: Ord + Clone + Default> KDistribute<T> {
-    pub fn new(splitters: &[T]) -> Self {
+    pub(crate) fn new(splitters: &[T]) -> Self {
         debug_assert!({
             let mut vec = splitters.to_owned();
             vec.sort();
@@ -282,12 +282,12 @@ impl<T: Ord> TreeBuffer<T, [T]> for SmallVec<[T; 5]> {
     }
 }
 #[derive(Debug)]
-pub struct RDistribute<T: Ord> {
+pub(crate) struct RDistribute<T: Ord> {
     tree: SmallVec<[T; 5]>,
 }
 
 impl<T: Ord> RDistribute<T> {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             tree: SmallVec::new(),
         }
@@ -312,7 +312,7 @@ impl<T: Ord> Distribute<T> for RDistribute<T> {
 
 impl<T: Ord + Clone> RDistribute<T> {
     // adds a splitter at the last index
-    pub fn add_splitter(&mut self, s: T) {
+    pub(crate) fn add_splitter(&mut self, s: T) {
         let mut buffer = SmallVec::<[T; 5]>::new();
         buffer.resize(self.tree.len(), s.clone());
 
