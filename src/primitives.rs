@@ -2,7 +2,7 @@ use crate::params::*;
 
 use arrayvec::ArrayVec;
 use mem::MaybeUninit;
-use smallvec::{smallvec, SmallVec};
+use smallvec::SmallVec;
 use std::{cmp::Ordering, convert::AsRef, iter::FromIterator, mem, ops::IndexMut};
 
 const _SPLITS: usize = _K - 1;
@@ -151,9 +151,11 @@ fn flat_tree_index_order(len: usize) -> TreeIndexIter {
     TreeIndexIter {
         len,
         stack: if len > 0 {
-            smallvec![(0, DFSLabel::from(element_type(0, len)))]
+            let mut vec = ArrayVec::new();
+            vec.push((0, DFSLabel::from(element_type(0, len))));
+            vec
         } else {
-            SmallVec::new()
+            ArrayVec::new()
         },
     }
 }
@@ -177,8 +179,8 @@ impl From<TreeElement> for DFSLabel {
 
 struct TreeIndexIter {
     len: usize,
-    // TODO: replace with ArrayVec?
-    stack: SmallVec<[(usize, DFSLabel); _SPLITS.count_ones() as usize]>,
+    // suffices for KDistribute and for RDistribute, as R <= K for any reasonable input size
+    stack: ArrayVec<[(usize, DFSLabel); _SPLITS.count_ones() as usize]>,
 }
 
 impl Iterator for TreeIndexIter {
@@ -206,8 +208,6 @@ impl Iterator for TreeIndexIter {
                 }
                 DFSLabel::None => return Some(i),
             }
-            // Stack should be spilled only for extremely large data sets at the R-distribute.
-            debug_assert!(!self.stack.spilled());
         }
     }
 }
