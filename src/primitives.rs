@@ -1,15 +1,9 @@
 use crate::params::*;
 
 use arrayvec::ArrayVec;
+use mem::MaybeUninit;
 use smallvec::{smallvec, SmallVec};
-use std::{
-    cmp::Ordering,
-    convert::{AsMut, AsRef},
-    iter::FromIterator,
-    marker::PhantomData,
-    mem,
-    ops::IndexMut,
-};
+use std::{cmp::Ordering, convert::AsRef, iter::FromIterator, mem, ops::IndexMut};
 
 const _SPLITS: usize = _K - 1;
 
@@ -30,38 +24,39 @@ enum TreeElement {
 }
 
 // helper trait for common functionality of R-way and k-way distribute
-trait TreeBuffer<T: Ord, R: ?Sized>: AsRef<R> + AsMut<R>
+trait TreeBuffer<T: Ord, R: ?Sized>
 where
     R: IndexMut<usize, Output = T>,
 {
     fn len(&self) -> usize;
 
-    unsafe fn get_unchecked(&self, index: usize) -> &T;
-
-    fn element_type(&self, index: usize) -> TreeElement {
-        let high = self.len() / 2;
-        let low = (self.len() - 1) / 2;
-
-        match index {
-            i if i < low => TreeElement::Node(2 * i + 1, 2 * i + 2),
-            i if i < high => TreeElement::UnaryNode(2 * i + 1),
-            i if i < self.len() => TreeElement::Leaf,
-            i => panic!("Invalid index: {:?}", i),
+    fn get(&self, index: usize) -> &T {
+        if index < self.len() {
+            unsafe { self.get_unchecked(index) }
+        } else {
+            panic!(
+                "index out of bounds: the len is {} but the index is {}",
+                self.len(),
+                index
+            )
         }
     }
 
+    fn get_mut(&mut self, index: usize) -> &mut T;
+
+    unsafe fn get_unchecked(&self, index: usize) -> &T;
+
     /// debugging
     fn structure_check(&self) -> bool {
-        let self_r = self.as_ref();
         let mut el_type = 0;
 
         (0..self.len())
-            .map(|i| match self.element_type(i) {
+            .map(|i| match element_type(i, self.len()) {
                 TreeElement::Node(left, right) => {
-                    self_r[left] <= self_r[i] && self_r[i] <= self_r[right] && el_type == 0
+                    self.get(left) <= self.get(i) && self.get(i) <= self.get(right) && el_type == 0
                 }
                 TreeElement::UnaryNode(left) => {
-                    let res = self_r[left] <= self_r[i] && el_type <= 1;
+                    let res = self.get(left) <= self.get(i) && el_type <= 1;
                     el_type = 1;
                     res
                 }
@@ -75,14 +70,14 @@ where
 
     /// Inserts the splitter at the appropriate position, moving the remaining splitters to the right and returning the largest one.
     fn insert_splitter_at_idx(&mut self, splitter: T, idx: usize) -> T {
-        let el_type = self.element_type(idx);
+        let el_type = element_type(idx, self.len());
 
-        if splitter < self.as_ref()[idx] {
+        if splitter < *self.get(idx) {
             match el_type {
-                TreeElement::Leaf => mem::replace(&mut self.as_mut()[idx], splitter),
+                TreeElement::Leaf => mem::replace(self.get_mut(idx), splitter),
                 TreeElement::UnaryNode(left) | TreeElement::Node(left, _) => {
                     let new = self.insert_splitter_at_idx(splitter, left);
-                    let old = mem::replace(&mut self.as_mut()[idx], new);
+                    let old = mem::replace(self.get_mut(idx), new);
 
                     if let TreeElement::Node(_, right) = el_type {
                         // causes unnecessary comparisons
@@ -97,19 +92,6 @@ where
                 TreeElement::UnaryNode(_) | TreeElement::Leaf => splitter,
                 TreeElement::Node(_, right) => self.insert_splitter_at_idx(splitter, right),
             }
-        }
-    }
-
-    fn traverse_in_order(&self) -> TreeIter<'_, Self, T, R> {
-        TreeIter {
-            tree: self,
-            stack: if self.len() > 0 {
-                smallvec![(0, DFSLabel::from(self.element_type(0)))]
-            } else {
-                SmallVec::new()
-            },
-            _t: PhantomData,
-            _r: PhantomData,
         }
     }
 
@@ -139,7 +121,7 @@ where
 
     fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
         let t_idx = self.select_tree_index(idx);
-        let result = mem::replace(&mut self.as_mut()[t_idx], splitter);
+        let result = mem::replace(self.get_mut(t_idx), splitter);
         debug_assert!(self.structure_check());
         result
     }
@@ -149,6 +131,30 @@ where
         debug_assert!(idx < self.len());
         let is_less = el < self.get_unchecked(idx);
         2 * idx + (if is_less { 1 } else { 2 })
+    }
+}
+
+// further helper methods
+fn element_type(index: usize, len: usize) -> TreeElement {
+    let high = len / 2;
+    let low = (len - 1) / 2;
+
+    match index {
+        i if i < low => TreeElement::Node(2 * i + 1, 2 * i + 2),
+        i if i < high => TreeElement::UnaryNode(2 * i + 1),
+        i if i < len => TreeElement::Leaf,
+        i => panic!("Invalid index: {:?}", i),
+    }
+}
+
+fn flat_tree_index_order(len: usize) -> TreeIndexIter {
+    TreeIndexIter {
+        len,
+        stack: if len > 0 {
+            smallvec![(0, DFSLabel::from(element_type(0, len)))]
+        } else {
+            SmallVec::new()
+        },
     }
 }
 
@@ -169,21 +175,13 @@ impl From<TreeElement> for DFSLabel {
     }
 }
 
-struct TreeIter<'a, B: ?Sized, T: Ord, R: ?Sized + IndexMut<usize, Output = T>>
-where
-    B: TreeBuffer<T, R> + AsRef<R> + AsMut<R>,
-{
-    tree: &'a B,
-    // the TreeElement enum might be a bit misused here
+struct TreeIndexIter {
+    len: usize,
+    // TODO: replace with ArrayVec?
     stack: SmallVec<[(usize, DFSLabel); _SPLITS.count_ones() as usize]>,
-    _t: PhantomData<T>,
-    _r: PhantomData<R>,
 }
 
-impl<'a, B, T: Ord + 'a, R: ?Sized + IndexMut<usize, Output = T>> Iterator for TreeIter<'a, B, T, R>
-where
-    B: TreeBuffer<T, R> + AsRef<R> + AsMut<R>,
-{
+impl Iterator for TreeIndexIter {
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -194,16 +192,16 @@ where
                 DFSLabel::Both(left, right) => {
                     self.stack.push((i, DFSLabel::Right(right)));
                     self.stack
-                        .push((left, DFSLabel::from(self.tree.element_type(left))));
+                        .push((left, DFSLabel::from(element_type(left, self.len))));
                 }
                 DFSLabel::Left(left) => {
                     self.stack.push((i, DFSLabel::None));
                     self.stack
-                        .push((left, DFSLabel::from(self.tree.element_type(left))));
+                        .push((left, DFSLabel::from(element_type(left, self.len))));
                 }
                 DFSLabel::Right(right) => {
                     self.stack
-                        .push((right, DFSLabel::from(self.tree.element_type(right))));
+                        .push((right, DFSLabel::from(element_type(right, self.len))));
                     return Some(i);
                 }
                 DFSLabel::None => return Some(i),
@@ -219,19 +217,22 @@ impl<T: Ord> TreeBuffer<T, [T]> for [T; _SPLITS] {
         _SPLITS
     }
 
+    fn get_mut(&mut self, index: usize) -> &mut T {
+        &mut self[index]
+    }
+
     unsafe fn get_unchecked(&self, index: usize) -> &T {
         self.as_ref().get_unchecked(index)
     }
 }
 
-#[derive(Debug)]
 pub(crate) struct KDistribute<T: Ord> {
     tree: [T; _SPLITS],
 }
 
 // TODO: default unnecessary
-impl<T: Ord + Clone + Default> KDistribute<T> {
-    pub(crate) fn new(splitters: &[T]) -> Self {
+impl<T: Ord + Clone> KDistribute<T> {
+    pub fn new(splitters: &[T]) -> Self {
         debug_assert!({
             let mut vec = splitters.to_owned();
             vec.sort();
@@ -239,12 +240,15 @@ impl<T: Ord + Clone + Default> KDistribute<T> {
         });
         assert!(splitters.len() >= _SPLITS);
 
-        let mut tree: [T; _SPLITS] = Default::default();
-        tree.traverse_in_order()
-            .collect::<Vec<usize>>()
-            .into_iter()
+        let mut tree: MaybeUninit<[T; _SPLITS]> = MaybeUninit::uninit();
+        flat_tree_index_order(_SPLITS)
             .enumerate()
-            .for_each(|(i, j)| tree[j] = splitters[i].clone());
+            .for_each(|(i, j)| unsafe {
+                (tree.as_mut_ptr() as *mut T)
+                    .add(j)
+                    .write(splitters[i].clone())
+            });
+        let tree = unsafe { tree.assume_init() };
 
         debug_assert!(tree.structure_check());
         Self { tree }
@@ -284,10 +288,15 @@ impl<T: Ord> TreeBuffer<T, [T]> for SmallVec<[T; 5]> {
         self.len()
     }
 
+    fn get_mut(&mut self, index: usize) -> &mut T {
+        &mut self[index]
+    }
+
     unsafe fn get_unchecked(&self, index: usize) -> &T {
         self.as_ref().get_unchecked(index)
     }
 }
+
 #[derive(Debug)]
 pub(crate) struct RDistribute<T: Ord> {
     tree: SmallVec<[T; 5]>,
@@ -337,23 +346,17 @@ impl<T: Ord> Distribute<T> for RDistribute<T> {
 }
 
 impl<T: Ord + Clone> RDistribute<T> {
-    // adds a splitter at the last index
     pub(crate) fn add_splitter(&mut self, s: T) {
+    // adds a splitter at the last index by rebuilding the complete tree
         let mut buffer = SmallVec::<[T; 5]>::new();
         buffer.resize(self.tree.len(), s.clone());
 
-        self.tree
-            .traverse_in_order()
+        flat_tree_index_order(self.tree.len())
             .enumerate()
-            .for_each(|(i, j)| {
-                buffer[i] = self.tree[j].clone();
-            });
+            .for_each(|(i, j)| buffer[i] = self.tree[j].clone());
         self.tree.push(s.clone());
         buffer.push(s);
-        self.tree
-            .traverse_in_order()
-            .collect::<Vec<usize>>()
-            .into_iter()
+        flat_tree_index_order(self.tree.len())
             .enumerate()
             .for_each(|(i, j)| self.tree[j] = buffer[i].clone());
 
@@ -477,12 +480,15 @@ mod test {
         let splitters = &Vec::from_iter(1.._K);
         let mut distr = KDistribute::<usize>::new(splitters);
 
-        assert_eq!(31, distr.insert_splitter(31));
-        assert_eq!(31, distr.insert_splitter(0));
-        assert_eq!(30, distr.insert_splitter(10));
-        assert_eq!(29, distr.insert_splitter(15));
-        assert_eq!(28, distr.replace_splitter(100, 30));
-        assert_eq!(100, distr.insert_splitter(3));
+        assert_eq!(_SPLITS, distr.insert_splitter(_SPLITS));
+        assert_eq!(_SPLITS, distr.insert_splitter(0));
+        assert_eq!(_SPLITS - 1, distr.insert_splitter(10));
+        assert_eq!(_SPLITS - 2, distr.insert_splitter(15));
+        assert_eq!(
+            _SPLITS - 3,
+            distr.replace_splitter(2 * _SPLITS + 3, _SPLITS - 1)
+        );
+        assert_eq!(2 * _SPLITS + 3, distr.insert_splitter(3));
     }
 
     #[test]
@@ -508,7 +514,7 @@ mod test {
     fn check_traverse<R: ?Sized + IndexMut<usize, Output = usize>>(
         tree: &impl TreeBuffer<usize, R>,
     ) {
-        tree.traverse_in_order()
+        flat_tree_index_order(tree.len())
             .enumerate()
             .for_each(|(i, j)| assert_eq!(j, tree.select_tree_index(i)));
     }
