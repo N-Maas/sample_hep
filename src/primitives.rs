@@ -303,7 +303,7 @@ pub(crate) struct RDistribute<T: Ord> {
 }
 
 impl<T: Ord> RDistribute<T> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             tree: SmallVec::new(),
         }
@@ -346,8 +346,8 @@ impl<T: Ord> Distribute<T> for RDistribute<T> {
 }
 
 impl<T: Ord + Clone> RDistribute<T> {
-    pub(crate) fn add_splitter(&mut self, s: T) {
     // adds a splitter at the last index by rebuilding the complete tree
+    pub fn add_splitter(&mut self, s: T) {
         let mut buffer = SmallVec::<[T; 5]>::new();
         buffer.resize(self.tree.len(), s.clone());
 
@@ -372,34 +372,34 @@ pub(crate) struct Sequence<T: Ord> {
 }
 
 impl<T: Ord> Sequence<T> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Default::default()
     }
 
-    pub(crate) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.data.len()
     }
 
-    pub(crate) fn push(&mut self, el: T) {
+    pub fn push(&mut self, el: T) {
         self.data.push(el)
     }
 
-    pub(crate) fn append(&mut self, other: &mut Self) {
+    pub fn append(&mut self, other: &mut Self) {
         self.data.append(&mut other.data)
     }
 
     // TODO: inefficient for some cases? (unnecessary I/O)
-    pub(crate) fn drain(&mut self) -> impl Iterator<Item = T> + '_ {
+    pub fn drain(&mut self) -> impl Iterator<Item = T> + '_ {
         self.data.drain(0..)
     }
 
     /// used for checking invariants
-    pub(crate) fn min(&self) -> Option<&T> {
+    pub fn min(&self) -> Option<&T> {
         self.data.iter().min()
     }
 
     /// used for checking invariants
-    pub(crate) fn max(&self) -> Option<&T> {
+    pub fn max(&self) -> Option<&T> {
         self.data.iter().max()
     }
 }
@@ -423,26 +423,26 @@ pub(crate) struct GroupBuffer<T> {
 }
 
 impl<T: Ord> GroupBuffer<T> {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             data: ArrayVec::new(),
         }
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
 
-    pub(crate) fn is_full(&self) -> bool {
+    pub fn is_full(&self) -> bool {
         self.data.is_full()
     }
 
     // TODO: is a second bounds check elided?
-    pub(crate) fn push(&mut self, el: T) {
+    pub fn push(&mut self, el: T) {
         self.data.push(el)
     }
 
-    pub(crate) fn drain(&mut self) -> impl Iterator<Item = T> + '_ {
+    pub fn drain(&mut self) -> impl Iterator<Item = T> + '_ {
         self.data.drain(0..)
     }
 }
