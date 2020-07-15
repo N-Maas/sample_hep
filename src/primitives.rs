@@ -252,6 +252,8 @@ impl<T: Ord + Clone + Default> KDistribute<T> {
 }
 
 impl<T: Ord> Distribute<T> for KDistribute<T> {
+    // Unfortunately, the compiler can not eliminate the branch in the more general version
+    // of the r-distribute. Thus a little code duplication is unavoidable.
     fn distribute(&self, el: &T) -> usize {
         let len = self.tree.len();
 
@@ -383,8 +385,19 @@ impl<T: Ord> Sequence<T> {
         self.data.append(&mut other.data)
     }
 
+    // TODO: inefficient for some cases? (unnecessary I/O)
     pub(crate) fn drain(&mut self) -> impl Iterator<Item = T> + '_ {
         self.data.drain(0..)
+    }
+
+    /// used for checking invariants
+    pub(crate) fn min(&self) -> Option<&T> {
+        self.data.iter().min()
+    }
+
+    /// used for checking invariants
+    pub(crate) fn max(&self) -> Option<&T> {
+        self.data.iter().max()
     }
 }
 
@@ -411,6 +424,10 @@ impl<T: Ord> GroupBuffer<T> {
         Self {
             data: ArrayVec::new(),
         }
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.data.is_empty()
     }
 
     pub(crate) fn is_full(&self) -> bool {
