@@ -3,7 +3,7 @@ use crate::params::*;
 use arrayvec::ArrayVec;
 use mem::MaybeUninit;
 use smallvec::SmallVec;
-use std::{cmp::Ordering, convert::AsRef, iter::FromIterator, mem, ops::IndexMut};
+use std::{cmp::Ordering, convert::AsRef, fmt::Debug, iter::FromIterator, mem, ops::IndexMut};
 
 const _SPLITS: usize = _K - 1;
 
@@ -11,6 +11,8 @@ const _SPLITS: usize = _K - 1;
 
 pub(crate) trait Distribute<T: Ord> {
     fn distribute(&self, el: &T) -> usize;
+
+    fn splitter_at(&self, idx: usize) -> &T;
 
     fn insert_splitter(&mut self, splitter: T) -> T;
 
@@ -230,7 +232,6 @@ pub(crate) struct KDistribute<T: Ord> {
     tree: [T; _SPLITS],
 }
 
-// TODO: default unnecessary
 impl<T: Ord + Clone> KDistribute<T> {
     pub fn new(splitters: &[T]) -> Self {
         debug_assert!({
@@ -272,6 +273,11 @@ impl<T: Ord> Distribute<T> for KDistribute<T> {
         result
     }
 
+    fn splitter_at(&self, idx: usize) -> &T {
+        let tree_idx = self.tree.select_tree_index(idx);
+        self.tree.get(tree_idx)
+    }
+
     fn insert_splitter(&mut self, splitter: T) -> T {
         let result = self.tree.insert_splitter_at_idx(splitter, 0);
         debug_assert!(self.tree.structure_check());
@@ -280,6 +286,12 @@ impl<T: Ord> Distribute<T> for KDistribute<T> {
 
     fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
         self.tree.replace_splitter(splitter, idx)
+    }
+}
+
+impl<T: Debug + Ord> Debug for KDistribute<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        (&self.tree as &[T]).fmt(f)
     }
 }
 
@@ -334,6 +346,11 @@ impl<T: Ord> Distribute<T> for RDistribute<T> {
         result
     }
 
+    fn splitter_at(&self, idx: usize) -> &T {
+        let tree_idx = self.tree.select_tree_index(idx);
+        self.tree.get(tree_idx)
+    }
+
     fn insert_splitter(&mut self, splitter: T) -> T {
         let result = self.tree.insert_splitter_at_idx(splitter, 0);
         debug_assert!(self.tree.structure_check());
@@ -366,6 +383,7 @@ impl<T: Ord + Clone> RDistribute<T> {
 
 // ----- sequence and group buffer primitives ----- //
 
+#[derive(Debug)]
 // TODO: more efficient implementation regarding allocations
 pub(crate) struct Sequence<T: Ord> {
     data: Vec<T>,
@@ -394,13 +412,11 @@ impl<T: Ord> Sequence<T> {
     }
 
     /// used for checking invariants
-    #[cfg(any(test, debug))]
     pub fn min(&self) -> Option<&T> {
         self.data.iter().min()
     }
 
     /// used for checking invariants
-    #[cfg(any(test, debug))]
     pub fn max(&self) -> Option<&T> {
         self.data.iter().max()
     }
@@ -420,6 +436,7 @@ impl<T: Ord> FromIterator<T> for Sequence<T> {
     }
 }
 
+#[derive(Debug)]
 pub(crate) struct GroupBuffer<T> {
     data: ArrayVec<[T; _M]>,
 }
@@ -449,13 +466,11 @@ impl<T: Ord> GroupBuffer<T> {
     }
 
     /// used for checking invariants
-    #[cfg(any(test, debug))]
     pub fn min(&self) -> Option<&T> {
         self.data.iter().min()
     }
 
     /// used for checking invariants
-    #[cfg(any(test, debug))]
     pub fn max(&self) -> Option<&T> {
         self.data.iter().max()
     }
@@ -471,8 +486,9 @@ mod test {
         let splitters = &Vec::from_iter(1.._K);
         let distr = KDistribute::<usize>::new(splitters);
 
-        for i in 0.._K {
+        for i in 1.._K {
             assert_eq!(i, distr.distribute(&i));
+            assert_eq!(i, *distr.splitter_at(i - 1));
         }
     }
 
@@ -483,8 +499,9 @@ mod test {
         for i in 1..10 {
             distr.add_splitter(i);
 
-            for j in 0..i {
+            for j in 1..i {
                 assert_eq!(j, distr.distribute(&j));
+                assert_eq!(j, *distr.splitter_at(j - 1));
             }
         }
     }
