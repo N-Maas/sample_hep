@@ -2,7 +2,7 @@ use crate::params::*;
 use crate::primitives::*;
 
 use arrayvec::ArrayVec;
-use std::{cmp::Reverse, collections::BinaryHeap, iter};
+use std::{cmp::Reverse, collections::BinaryHeap, fmt::Debug, iter, mem};
 
 /// contains the element that caused the overflow
 pub(crate) struct HeapOverflowError<T>(T);
@@ -42,6 +42,11 @@ impl<T: Ord> BufferHeap<T> {
             self.data.push(Reverse(el));
             Ok(())
         }
+    }
+
+    pub fn extract_elements(&mut self) -> Vec<T> {
+        // TODO unnecessary copying
+        self.data.drain().map(|el| el.0).collect()
     }
 
     /// used for checking invariants
@@ -103,6 +108,44 @@ impl<T: Ord> BaseGroup<T> {
         Ok(())
     }
 
+    // TODO: replace sequence (?)
+
+    /// insert a sequence at the given index by specifying the next smaller splitter
+    /// the sequences are fuller, the largest is removed and returned with the according splitter
+    /// insertion to first position is not possible
+    pub fn insert_sequence(
+        &mut self,
+        splitter: T,
+        seq: Sequence<T>,
+        idx: usize,
+    ) -> Option<(T, Sequence<T>)> {
+        debug_assert!(idx < _K);
+        debug_assert!(splitter <= *self.distr.splitter_at(idx - 1));
+        let rev_idx = Self::rev_idx(&self.sequences, idx);
+
+        let result = if !self.sequences.is_full() {
+            debug_assert!(rev_idx < self.sequences.len(), "idx={:?}", idx);
+            self.sequences.insert(rev_idx, seq);
+            self.distr.insert_splitter(splitter);
+            None
+        } else {
+            debug_assert!(idx > 0);
+            let larger_range = &mut self.sequences[0..=rev_idx];
+            larger_range.rotate_left(1);
+            Some((
+                self.distr.insert_splitter(splitter),
+                mem::replace(&mut larger_range[rev_idx], seq),
+            ))
+        };
+
+        debug_assert!(self.structure_check());
+        result
+    }
+
+    pub fn pop_sequence(&mut self) -> Option<Sequence<T>> {
+        self.sequences.pop()
+    }
+
     unsafe fn sequence_at_unchecked(
         sequences: &mut ArrayVec<[Sequence<T>; _K]>,
         idx: usize,
@@ -122,23 +165,24 @@ impl<T: Ord> BaseGroup<T> {
         }
     }
 
-    // TODO: insert & replace sequence, drain smallest sequence
-
     /// used for checking invariants
     pub fn structure_check(&self) -> bool {
-        self.sequences
-            .iter()
-            .skip(1)
-            .rev()
-            .enumerate()
-            .all(|(i, s)| s.max().unwrap() < self.distr.splitter_at(i))
+        let idx_delta = _K - self.sequences.len();
+        self.distr.structure_check()
+            && self
+                .sequences
+                .iter()
+                .skip(1)
+                .rev()
+                .enumerate()
+                .all(|(i, s)| s.max().unwrap() <= self.distr.splitter_at(i + idx_delta))
             && self
                 .sequences
                 .iter()
                 .rev()
                 .skip(1)
                 .enumerate()
-                .all(|(i, s)| s.min().unwrap() >= self.distr.splitter_at(i))
+                .all(|(i, s)| s.min().unwrap() >= self.distr.splitter_at(i + idx_delta))
             && self.sequences.iter().all(|s| s.len() <= self.max_seq_len)
     }
 
@@ -150,6 +194,22 @@ impl<T: Ord> BaseGroup<T> {
     /// used for checking invariants
     pub fn max(&self) -> Option<&T> {
         self.sequences.first().map(|s| s.max().unwrap())
+    }
+}
+
+impl<T: Ord + Clone> BaseGroup<T> {
+    /// adds a new smallest sequence and splitter if the groups number of sequences is not full
+    pub fn push_sequence(&mut self, splitter: T, seq: Sequence<T>) {
+        debug_assert!(self.sequences.len() < _K);
+        debug_assert!(
+            self.sequences.len() <= 1
+                || splitter <= *self.distr.splitter_at(_K - self.sequences.len())
+        );
+        self.sequences.push(seq);
+        for i in 0..(_K - self.sequences.len()) {
+            self.distr.replace_splitter(splitter.clone(), i);
+        }
+        debug_assert!(self.structure_check());
     }
 }
 
@@ -257,5 +317,38 @@ mod test {
                 assert_eq!(remaining, vec![8, 9]);
             }
         }
+    }
+
+    #[test]
+    fn base_group_seqs() {
+        let splitters = [2 * _K; _K - 1];
+        let mut group = BaseGroup {
+            distr: KDistribute::new(&splitters),
+            sequences: ArrayVec::new(),
+            max_seq_len: 1,
+        };
+        assert!(group.structure_check());
+        assert_eq!(None, group.min());
+        assert_eq!(None, group.max());
+
+        for i in (0.._K).rev() {
+            let mut seq = Sequence::new();
+            seq.push(2 * i);
+            group.push_sequence(2 * i, seq);
+        }
+        assert_eq!(*group.min().unwrap(), 0);
+        assert_eq!(*group.max().unwrap(), 2 * _K - 2);
+
+        let mut seq = Sequence::new();
+        seq.push(2 * _K - 3);
+        let (val, _) = group.insert_sequence(2 * _K - 3, seq, _K - 1).unwrap();
+        assert_eq!(val, 2 * _K - 2);
+        assert_eq!(*group.max().unwrap(), 2 * _K - 3);
+
+        let mut seq = Sequence::new();
+        seq.push(2);
+        let (val, _) = group.insert_sequence(2, seq, 1).unwrap();
+        assert_eq!(val, 2 * _K - 3);
+        assert_eq!(*group.max().unwrap(), 2 * _K - 4);
     }
 }

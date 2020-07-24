@@ -17,6 +17,8 @@ pub(crate) trait Distribute<T: Ord> {
     fn insert_splitter(&mut self, splitter: T) -> T;
 
     fn replace_splitter(&mut self, splitter: T, idx: usize) -> T;
+
+    fn structure_check(&self) -> bool;
 }
 
 enum TreeElement {
@@ -123,9 +125,7 @@ where
 
     fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
         let t_idx = self.select_tree_index(idx);
-        let result = mem::replace(self.get_mut(t_idx), splitter);
-        debug_assert!(self.structure_check());
-        result
+        mem::replace(self.get_mut(t_idx), splitter)
     }
 
     /// used for distribute
@@ -287,6 +287,10 @@ impl<T: Ord> Distribute<T> for KDistribute<T> {
     fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
         self.tree.replace_splitter(splitter, idx)
     }
+
+    fn structure_check(&self) -> bool {
+        self.tree.structure_check()
+    }
 }
 
 impl<T: Debug + Ord> Debug for KDistribute<T> {
@@ -359,6 +363,10 @@ impl<T: Ord> Distribute<T> for RDistribute<T> {
 
     fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
         self.tree.replace_splitter(splitter, idx)
+    }
+
+    fn structure_check(&self) -> bool {
+        self.tree.structure_check()
     }
 }
 
@@ -519,6 +527,7 @@ mod test {
             _SPLITS - 3,
             distr.replace_splitter(2 * _SPLITS + 3, _SPLITS - 1)
         );
+        assert!(distr.structure_check());
         assert_eq!(2 * _SPLITS + 3, distr.insert_splitter(3));
     }
 
