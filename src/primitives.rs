@@ -394,11 +394,13 @@ impl<T: Ord> Sequence<T> {
     }
 
     /// used for checking invariants
+    #[cfg(any(test, debug))]
     pub fn min(&self) -> Option<&T> {
         self.data.iter().min()
     }
 
     /// used for checking invariants
+    #[cfg(any(test, debug))]
     pub fn max(&self) -> Option<&T> {
         self.data.iter().max()
     }
@@ -444,6 +446,18 @@ impl<T: Ord> GroupBuffer<T> {
 
     pub fn drain(&mut self) -> impl Iterator<Item = T> + '_ {
         self.data.drain(0..)
+    }
+
+    /// used for checking invariants
+    #[cfg(any(test, debug))]
+    pub fn min(&self) -> Option<&T> {
+        self.data.iter().min()
+    }
+
+    /// used for checking invariants
+    #[cfg(any(test, debug))]
+    pub fn max(&self) -> Option<&T> {
+        self.data.iter().max()
     }
 }
 
@@ -517,5 +531,47 @@ mod test {
         flat_tree_index_order(tree.len())
             .enumerate()
             .for_each(|(i, j)| assert_eq!(j, tree.select_tree_index(i)));
+    }
+
+    #[test]
+    fn test_sequence() {
+        let mut seq = Sequence::<usize>::new();
+        assert_eq!(seq.len(), 0);
+        seq.push(1);
+        seq.push(3);
+        assert_eq!(*seq.min().unwrap(), 1);
+        seq.push(0);
+        assert_eq!(*seq.min().unwrap(), 0);
+        assert_eq!(*seq.max().unwrap(), 3);
+        assert_eq!(seq.len(), 3);
+
+        let mut other = Sequence::<usize>::new();
+        other.push(7);
+        other.push(6);
+        seq.append(&mut other);
+        assert_eq!(other.len(), 0);
+        assert_eq!(seq.len(), 5);
+
+        seq.drain()
+            .zip(vec![1, 3, 0, 7, 6].into_iter())
+            .for_each(|(x, y)| assert_eq!(x, y));
+    }
+
+    #[test]
+    fn test_buffer() {
+        let mut buf = GroupBuffer::<usize>::new();
+        assert!(buf.is_empty());
+        assert!(!buf.is_full());
+        buf.push(1);
+        assert!(!buf.is_empty());
+        buf.push(3);
+        assert_eq!(*buf.min().unwrap(), 1);
+        buf.push(0);
+        assert_eq!(*buf.min().unwrap(), 0);
+        assert_eq!(*buf.max().unwrap(), 3);
+
+        buf.drain()
+            .zip(vec![1, 3, 0].into_iter())
+            .for_each(|(x, y)| assert_eq!(x, y));
     }
 }
