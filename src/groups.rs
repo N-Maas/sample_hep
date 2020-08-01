@@ -110,9 +110,9 @@ impl<T: Ord> BaseGroup<T> {
 
     // TODO: replace sequence (?)
 
-    /// insert a sequence at the given index by specifying the next smaller splitter
-    /// the sequences are fuller, the largest is removed and returned with the according splitter
-    /// insertion to first position is not possible
+    /// Inserts a sequence at the given index by specifying the next smaller splitter.
+    /// If the number of sequences is full, the largest is removed and returned with the according splitter.
+    /// Insertion to first position is not possible.
     pub fn insert_sequence(
         &mut self,
         splitter: T,
@@ -140,10 +140,6 @@ impl<T: Ord> BaseGroup<T> {
 
         debug_assert!(self.structure_check());
         result
-    }
-
-    pub fn pop_sequence(&mut self) -> Option<Sequence<T>> {
-        self.sequences.pop()
     }
 
     unsafe fn sequence_at_unchecked(
@@ -210,6 +206,20 @@ impl<T: Ord + Clone> BaseGroup<T> {
             self.distr.replace_splitter(splitter.clone(), i);
         }
         debug_assert!(self.structure_check());
+    }
+
+    pub fn pop_sequence(&mut self) -> Option<Sequence<T>> {
+        let result = self.sequences.pop();
+
+        // necessary to ensure a valid structure of the splitters:
+        // minimal elements are distributed to either index 0 or the minimal sequence
+        // 0 is correctly adjusted by the rev_idx function
+        if !self.sequences.is_empty() {
+            let min = self.distr.splitter_at(0);
+            self.distr.replace_splitter(min.clone(), _K - self.sequences.len() - 1);
+        }
+        debug_assert!(self.structure_check());
+        result
     }
 }
 
@@ -350,5 +360,40 @@ mod test {
         let (val, _) = group.insert_sequence(2, seq, 1).unwrap();
         assert_eq!(val, 2 * _K - 3);
         assert_eq!(*group.max().unwrap(), 2 * _K - 4);
+    }
+
+    #[test]
+    fn base_group_insert_elements() {
+        let splitters = [0; _K - 1];
+        let mut group = BaseGroup {
+            distr: KDistribute::new(&splitters),
+            sequences: ArrayVec::new(),
+            max_seq_len: 5,
+        };
+        assert!(group.structure_check());
+
+        for i in (1..=3).rev() {
+            let mut seq = Sequence::new();
+            seq.push(2 * i);
+            group.push_sequence(2 * i, seq);
+        }
+
+        group.forced_insert_all(vec![1,3,5,7].into_iter());
+        assert_eq!(*group.min().unwrap(), 1);
+        assert_eq!(*group.max().unwrap(), 7);
+
+        let mut smallest: Vec<i32> = group.pop_sequence().unwrap().drain().collect();
+        smallest.sort();
+        assert_eq!(vec![1,2,3], smallest);
+
+        group.forced_insert_all(vec![1,5].into_iter());
+        let mut smallest: Vec<i32> = group.pop_sequence().unwrap().drain().collect();
+        smallest.sort();
+        assert_eq!(vec![1,4,5,5], smallest);
+
+        group.forced_insert_all(vec![3,5,7].into_iter());
+        let mut smallest: Vec<i32> = group.pop_sequence().unwrap().drain().collect();
+        smallest.sort();
+        assert_eq!(vec![3,5,6,7,7], smallest);
     }
 }
