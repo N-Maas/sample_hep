@@ -2,12 +2,16 @@ use crate::params::*;
 use crate::primitives::*;
 
 use arrayvec::ArrayVec;
-use std::{cmp::Reverse, collections::BinaryHeap, fmt::Debug, iter, mem};
+use std::{cmp::Reverse, collections::BinaryHeap, fmt::Debug, iter, iter::FromIterator, mem};
 
 /// contains the element that caused the overflow
 pub(crate) struct HeapOverflowError<T>(T);
 /// contains the index of the overflowing sequence and all elements that must be reinserted
-pub(crate) struct GroupOverflowError<I: Iterator>(usize, I);
+pub(crate) struct GroupOverflowError<'a, T: Ord, I: Iterator<Item = T>> {
+    group: &'a mut BaseGroup<T>,
+    seq_idx: usize,
+    remaining: I,
+}
 
 #[derive(Debug)]
 pub(crate) struct BufferHeap<T: Ord> {
@@ -95,17 +99,21 @@ impl<T: Ord> BaseGroup<T> {
     pub fn overflowing_insert_all(
         &mut self,
         mut iter: impl Iterator<Item = T>,
-    ) -> Result<(), GroupOverflowError<impl Iterator<Item = T>>> {
+    ) -> Result<&mut Self, GroupOverflowError<T, impl Iterator<Item = T>>> {
         for el in &mut iter {
             let idx = self.distr.distribute(&el);
             let sequence = unsafe { Self::sequence_at_unchecked(&mut self.sequences, idx) };
             if sequence.len() < self.max_seq_len {
                 sequence.push(el);
             } else {
-                return Err(GroupOverflowError(idx, iter.chain(iter::once(el))));
+                return Err(GroupOverflowError {
+                    group: self,
+                    seq_idx: idx,
+                    remaining: iter.chain(iter::once(el)),
+                });
             }
         }
-        Ok(())
+        Ok(self)
     }
 
     // TODO: replace sequence (?)
@@ -194,17 +202,18 @@ impl<T: Ord> BaseGroup<T> {
 }
 
 impl<T: Ord + Clone> BaseGroup<T> {
-    /// adds a new smallest sequence and splitter if the groups number of sequences is not full
+    /// Adds a new smallest sequence and splitter if the groups number of sequences is not full.
+    /// The specified splitter must be bigger then the sequence.
     pub fn push_sequence(&mut self, splitter: T, seq: Sequence<T>) {
         debug_assert!(self.sequences.len() < _K);
         debug_assert!(
             self.sequences.len() <= 1
                 || splitter <= *self.distr.splitter_at(_K - self.sequences.len())
         );
-        self.sequences.push(seq);
-        for i in 0..(_K - self.sequences.len()) {
+        for i in 0..usize::min(_K - self.sequences.len(), _K - 1) {
             self.distr.replace_splitter(splitter.clone(), i);
         }
+        self.sequences.push(seq);
         debug_assert!(self.structure_check());
     }
 
@@ -216,7 +225,8 @@ impl<T: Ord + Clone> BaseGroup<T> {
         // 0 is correctly adjusted by the rev_idx function
         if !self.sequences.is_empty() {
             let min = self.distr.splitter_at(0);
-            self.distr.replace_splitter(min.clone(), _K - self.sequences.len() - 1);
+            self.distr
+                .replace_splitter(min.clone(), _K - self.sequences.len() - 1);
         }
         debug_assert!(self.structure_check());
         result
@@ -241,21 +251,22 @@ impl<T: Ord> BufferedGroup<T> {
     pub fn push<'a>(
         &'a mut self,
         el: T,
-    ) -> Result<(), GroupOverflowError<impl Iterator<Item = T> + 'a>> {
+    ) -> Result<(), GroupOverflowError<T, impl Iterator<Item = T> + 'a>> {
         if !self.buffer.is_full() {
             self.buffer.push(el);
             Ok(())
         } else {
-            self.base.overflowing_insert_all(self.buffer.drain())
+            self.base
+                .overflowing_insert_all(self.buffer.drain().chain(iter::once(el)))
+                .map(|_| ())
         }
     }
 
     pub fn clear_buffer<'a>(
         &'a mut self,
-    ) -> Result<&'a mut BaseGroup<T>, GroupOverflowError<impl Iterator<Item = T> + 'a>> {
+    ) -> Result<&'a mut BaseGroup<T>, GroupOverflowError<T, impl Iterator<Item = T> + 'a>> {
         let base = &mut self.base;
         base.overflowing_insert_all(self.buffer.drain())
-            .map(|_| base)
     }
 
     /// may exceed the size limits of the sequences
@@ -280,10 +291,23 @@ impl<T: Ord> BufferedGroup<T> {
     }
 }
 
+impl<T: Ord + Clone> BufferedGroup<T> {
+    pub fn new(max_seq_len: usize, default: T) -> Self {
+        let splitters = ArrayVec::<[T; _K]>::from_iter(iter::repeat(default).take(_K));
+        Self {
+            base: BaseGroup {
+                distr: KDistribute::new(&splitters),
+                sequences: ArrayVec::new(),
+                max_seq_len,
+            },
+            buffer: GroupBuffer::new(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
-    use std::iter::FromIterator;
 
     #[test]
     fn base_group_basic() {
@@ -308,22 +332,22 @@ mod test {
 
         let res = group.overflowing_insert_all(vec![0, 1].into_iter());
         match res {
-            Ok(()) => assert!(false),
-            Err(GroupOverflowError(i, iter)) => {
-                let mut remaining = iter.collect::<Vec<i32>>();
+            Ok(_) => assert!(false),
+            Err(e) => {
+                let mut remaining: Vec<i32> = e.remaining.collect();
                 remaining.sort();
-                assert_eq!(*group.sequence_at(i).min().unwrap(), 0);
+                assert_eq!(*e.group.sequence_at(e.seq_idx).min().unwrap(), 0);
                 assert_eq!(remaining, vec![0, 1]);
             }
         }
 
         let res = group.overflowing_insert_all(vec![8, 9].into_iter());
         match res {
-            Ok(()) => assert!(false),
-            Err(GroupOverflowError(i, iter)) => {
-                let mut remaining = iter.collect::<Vec<i32>>();
+            Ok(_) => assert!(false),
+            Err(e) => {
+                let mut remaining: Vec<i32> = e.remaining.collect();
                 remaining.sort();
-                assert_eq!(*group.sequence_at(i).min().unwrap(), 2);
+                assert_eq!(*e.group.sequence_at(e.seq_idx).min().unwrap(), 2);
                 assert_eq!(remaining, vec![8, 9]);
             }
         }
@@ -344,7 +368,7 @@ mod test {
         for i in (0.._K).rev() {
             let mut seq = Sequence::new();
             seq.push(2 * i);
-            group.push_sequence(2 * i, seq);
+            group.push_sequence(2 * i + 2, seq);
         }
         assert_eq!(*group.min().unwrap(), 0);
         assert_eq!(*group.max().unwrap(), 2 * _K - 2);
@@ -375,25 +399,53 @@ mod test {
         for i in (1..=3).rev() {
             let mut seq = Sequence::new();
             seq.push(2 * i);
-            group.push_sequence(2 * i, seq);
+            group.push_sequence(2 * i + 2, seq);
         }
 
-        group.forced_insert_all(vec![1,3,5,7].into_iter());
+        group.forced_insert_all(vec![1, 3, 5, 7].into_iter());
         assert_eq!(*group.min().unwrap(), 1);
         assert_eq!(*group.max().unwrap(), 7);
 
         let mut smallest: Vec<i32> = group.pop_sequence().unwrap().drain().collect();
         smallest.sort();
-        assert_eq!(vec![1,2,3], smallest);
+        assert_eq!(vec![1, 2, 3], smallest);
 
-        group.forced_insert_all(vec![1,5].into_iter());
+        group.forced_insert_all(vec![1, 5].into_iter());
         let mut smallest: Vec<i32> = group.pop_sequence().unwrap().drain().collect();
         smallest.sort();
-        assert_eq!(vec![1,4,5,5], smallest);
+        assert_eq!(vec![1, 4, 5, 5], smallest);
 
-        group.forced_insert_all(vec![3,5,7].into_iter());
+        group.forced_insert_all(vec![3, 5, 7].into_iter());
         let mut smallest: Vec<i32> = group.pop_sequence().unwrap().drain().collect();
         smallest.sort();
-        assert_eq!(vec![3,5,6,7,7], smallest);
+        assert_eq!(vec![3, 5, 6, 7, 7], smallest);
+    }
+
+    #[test]
+    fn buffered_group() {
+        let mut group = BufferedGroup::new(1, 0);
+        assert!(group.structure_check());
+
+        for i in (0.._K).rev() {
+            let mut seq = Sequence::new();
+            seq.push(2 * i);
+            group.clear_buffer_forced().push_sequence(2 * i + 2, seq);
+        }
+
+        for i in (0..=_M) {
+            match group.push(i) {
+                Ok(_) => {}
+                Err(e) => {
+                    dbg!(i);
+                    let mut remaining: Vec<usize> = e.remaining.collect();
+                    remaining.sort();
+                    assert_eq!(Vec::from_iter(0..=_M), remaining);
+
+                    e.group.forced_insert_all(remaining.into_iter());
+                }
+            }
+        }
+        group.base.max_seq_len = _M;
+        assert!(group.structure_check());
     }
 }
