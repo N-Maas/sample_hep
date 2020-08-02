@@ -419,6 +419,10 @@ impl<T: Ord> Sequence<T> {
         self.data.drain(0..)
     }
 
+    pub fn into_vec(self) -> Vec<T> {
+        self.data
+    }
+
     /// used for checking invariants
     pub fn min(&self) -> Option<&T> {
         self.data.iter().min()

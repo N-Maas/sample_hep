@@ -5,12 +5,27 @@ use arrayvec::ArrayVec;
 use std::{cmp::Reverse, collections::BinaryHeap, fmt::Debug, iter, iter::FromIterator, mem};
 
 /// contains the element that caused the overflow
-pub(crate) struct HeapOverflowError<T>(T);
+#[derive(Debug)]
+pub(crate) struct HeapOverflowError<T>(pub T);
 /// contains the index of the overflowing sequence and all elements that must be reinserted
+#[derive(Debug)]
 pub(crate) struct GroupOverflowError<'a, T: Ord, I: Iterator<Item = T>> {
-    group: &'a mut BaseGroup<T>,
-    seq_idx: usize,
-    remaining: I,
+    pub base_group: &'a mut BaseGroup<T>,
+    pub seq_idx: usize,
+    pub remaining: I,
+}
+
+impl<'a, T: Ord, I: Iterator<Item = T>> GroupOverflowError<'a, T, I> {
+    fn append_remaining(
+        self,
+        iter: impl Iterator<Item = T>,
+    ) -> GroupOverflowError<'a, T, impl Iterator<Item = T>> {
+        GroupOverflowError {
+            base_group: self.base_group,
+            seq_idx: self.seq_idx,
+            remaining: self.remaining.chain(iter),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -48,9 +63,9 @@ impl<T: Ord> BufferHeap<T> {
         }
     }
 
-    pub fn extract_elements(&mut self) -> Vec<T> {
-        // TODO unnecessary copying
-        self.data.drain().map(|el| el.0).collect()
+    pub fn drain<'a>(&'a mut self) -> impl Iterator<Item = T> + 'a {
+        // TODO unnecessary copying when emptying deletion heap?
+        self.data.drain().map(|el| el.0)
     }
 
     /// used for checking invariants
@@ -98,8 +113,8 @@ impl<T: Ord> BaseGroup<T> {
 
     pub fn overflowing_insert_all(
         &mut self,
-        mut iter: impl Iterator<Item = T>,
-    ) -> Result<&mut Self, GroupOverflowError<T, impl Iterator<Item = T>>> {
+        mut iter: &mut impl Iterator<Item = T>,
+    ) -> Result<&mut Self, GroupOverflowError<T, iter::Once<T>>> {
         for el in &mut iter {
             let idx = self.distr.distribute(&el);
             let sequence = unsafe { Self::sequence_at_unchecked(&mut self.sequences, idx) };
@@ -107,9 +122,9 @@ impl<T: Ord> BaseGroup<T> {
                 sequence.push(el);
             } else {
                 return Err(GroupOverflowError {
-                    group: self,
+                    base_group: self,
                     seq_idx: idx,
-                    remaining: iter.chain(iter::once(el)),
+                    remaining: iter::once(el),
                 });
             }
         }
@@ -202,6 +217,17 @@ impl<T: Ord> BaseGroup<T> {
 }
 
 impl<T: Ord + Clone> BaseGroup<T> {
+    pub fn new(max_seq_len: usize, splitters: &[T]) -> Self {
+        let sequences = ArrayVec::<[Sequence<T>; _K]>::from_iter(
+            iter::repeat_with(|| Sequence::new()).take(_K),
+        );
+        Self {
+            distr: KDistribute::new(splitters),
+            sequences,
+            max_seq_len,
+        }
+    }
+
     /// Adds a new smallest sequence and splitter if the groups number of sequences is not full.
     /// The specified splitter must be bigger then the sequence.
     pub fn push_sequence(&mut self, splitter: T, seq: Sequence<T>) {
@@ -231,6 +257,10 @@ impl<T: Ord + Clone> BaseGroup<T> {
         debug_assert!(self.structure_check());
         result
     }
+
+    pub fn into_sequences(self) -> impl Iterator<Item = Sequence<T>> {
+        self.sequences.into_iter()
+    }
 }
 
 #[derive(Debug)]
@@ -256,8 +286,10 @@ impl<T: Ord> BufferedGroup<T> {
             self.buffer.push(el);
             Ok(())
         } else {
+            let mut iter = self.buffer.drain().chain(iter::once(el));
             self.base
-                .overflowing_insert_all(self.buffer.drain().chain(iter::once(el)))
+                .overflowing_insert_all(&mut iter)
+                .map_err(|e| e.append_remaining(iter))
                 .map(|_| ())
         }
     }
@@ -265,14 +297,23 @@ impl<T: Ord> BufferedGroup<T> {
     pub fn clear_buffer<'a>(
         &'a mut self,
     ) -> Result<&'a mut BaseGroup<T>, GroupOverflowError<T, impl Iterator<Item = T> + 'a>> {
-        let base = &mut self.base;
-        base.overflowing_insert_all(self.buffer.drain())
+        let mut iter = self.buffer.drain();
+        self.base
+            .overflowing_insert_all(&mut iter)
+            .map_err(|e| e.append_remaining(iter))
     }
 
     /// may exceed the size limits of the sequences
     pub fn clear_buffer_forced(&mut self) -> &mut BaseGroup<T> {
         self.base.forced_insert_all(self.buffer.drain());
         &mut self.base
+    }
+
+    pub fn first_or_insert(&mut self) -> &mut Sequence<T> {
+        if self.base.is_empty() {
+            self.base.sequences.push(Sequence::new());
+        }
+        self.base.sequences.last_mut().unwrap()
     }
 
     /// used for checking invariants
@@ -303,6 +344,13 @@ impl<T: Ord + Clone> BufferedGroup<T> {
             buffer: GroupBuffer::new(),
         }
     }
+
+    pub fn from_base_group(base: BaseGroup<T>) -> Self {
+        Self {
+            base,
+            buffer: GroupBuffer::new(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -330,25 +378,21 @@ mod test {
         assert_eq!(*group.min().unwrap(), 0);
         assert_eq!(*group.max().unwrap(), 4);
 
-        let res = group.overflowing_insert_all(vec![0, 1].into_iter());
+        let res = group.overflowing_insert_all(&mut vec![0].into_iter());
         match res {
             Ok(_) => assert!(false),
             Err(e) => {
-                let mut remaining: Vec<i32> = e.remaining.collect();
-                remaining.sort();
-                assert_eq!(*e.group.sequence_at(e.seq_idx).min().unwrap(), 0);
-                assert_eq!(remaining, vec![0, 1]);
+                assert_eq!(*e.base_group.sequence_at(e.seq_idx).min().unwrap(), 0);
+                assert_eq!(e.remaining.last(), Some(0));
             }
         }
 
-        let res = group.overflowing_insert_all(vec![8, 9].into_iter());
+        let res = group.overflowing_insert_all(&mut vec![8].into_iter());
         match res {
             Ok(_) => assert!(false),
             Err(e) => {
-                let mut remaining: Vec<i32> = e.remaining.collect();
-                remaining.sort();
-                assert_eq!(*e.group.sequence_at(e.seq_idx).min().unwrap(), 2);
-                assert_eq!(remaining, vec![8, 9]);
+                assert_eq!(*e.base_group.sequence_at(e.seq_idx).min().unwrap(), 2);
+                assert_eq!(e.remaining.last(), Some(8));
             }
         }
     }
@@ -432,7 +476,7 @@ mod test {
             group.clear_buffer_forced().push_sequence(2 * i + 2, seq);
         }
 
-        for i in (0..=_M) {
+        for i in 0..=_M {
             match group.push(i) {
                 Ok(_) => {}
                 Err(e) => {
@@ -441,7 +485,7 @@ mod test {
                     remaining.sort();
                     assert_eq!(Vec::from_iter(0..=_M), remaining);
 
-                    e.group.forced_insert_all(remaining.into_iter());
+                    e.base_group.forced_insert_all(remaining.into_iter());
                 }
             }
         }
