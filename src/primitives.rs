@@ -149,6 +149,7 @@ fn element_type(index: usize, len: usize) -> TreeElement {
     }
 }
 
+/// This function assumes that _R < _K always holds, otherwise the search stack will overflow.
 fn flat_tree_index_order(len: usize) -> TreeIndexIter {
     TreeIndexIter {
         len,
@@ -331,6 +332,10 @@ impl<T: Ord> Distribute<T> for RDistribute<T> {
         let len = self.tree.len();
         let high = (len + 1).next_power_of_two() - 1;
 
+        if len == 0 {
+            return 0;
+        }
+
         let mut idx = 0;
         for _ in 0..(high.count_ones() - 1) {
             // compiler seems unable to completely remove bound checks
@@ -386,6 +391,10 @@ impl<T: Ord + Clone> RDistribute<T> {
             .for_each(|(i, j)| self.tree[j] = buffer[i].clone());
 
         debug_assert!(self.tree.structure_check());
+    }
+
+    pub fn len(&self) -> usize {
+        self.tree.len()
     }
 }
 
@@ -507,8 +516,9 @@ mod test {
     #[test]
     fn basic_rway() {
         let mut distr = RDistribute::<usize>::new();
+        assert_eq!(0, distr.distribute(&1));
 
-        for i in 1..10 {
+        for i in 1..usize::min(_K, 10) {
             distr.add_splitter(i);
 
             for j in 1..i {
@@ -520,13 +530,17 @@ mod test {
 
     #[test]
     fn move_subtree() {
+        if _K < 8 {
+            return;
+        }
+
         let splitters = &Vec::from_iter(1.._K);
         let mut distr = KDistribute::<usize>::new(splitters);
 
         assert_eq!(_SPLITS, distr.insert_splitter(_SPLITS));
         assert_eq!(_SPLITS, distr.insert_splitter(0));
-        assert_eq!(_SPLITS - 1, distr.insert_splitter(10));
-        assert_eq!(_SPLITS - 2, distr.insert_splitter(15));
+        assert_eq!(_SPLITS - 1, distr.insert_splitter(1));
+        assert_eq!(_SPLITS - 2, distr.insert_splitter(2));
         assert_eq!(
             _SPLITS - 3,
             distr.replace_splitter(2 * _SPLITS + 3, _SPLITS - 1)
@@ -549,7 +563,7 @@ mod test {
     fn traverse_rway() {
         let mut distr = RDistribute::<usize>::new();
 
-        for i in 1..10 {
+        for i in 1..usize::min(_K, 10) {
             distr.add_splitter(i);
             check_traverse(&distr.tree);
         }
