@@ -258,6 +258,12 @@ impl<T: Ord + Clone> KDistribute<T> {
     }
 }
 
+impl<'a, T: 'a + Ord + Clone> KDistribute<T> {
+    pub fn into_iter(self) -> impl Iterator<Item = T> + 'a {
+        flat_tree_index_order(_SPLITS).map(move |i| self.tree[i].clone())
+    }
+}
+
 impl<T: Ord> Distribute<T> for KDistribute<T> {
     // Unfortunately, the compiler can not eliminate the branch in the more general version
     // of the r-distribute. Thus a little code duplication is unavoidable.
@@ -566,6 +572,7 @@ mod test {
         let distr = KDistribute::<usize>::new(splitters);
 
         check_traverse(&distr.tree);
+        assert_eq!(*splitters, distr.into_iter().collect::<Vec<usize>>());
     }
 
     #[test]

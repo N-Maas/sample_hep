@@ -211,7 +211,7 @@ impl<T: Ord> BaseGroup<T> {
     }
 }
 
-impl<T: Ord + Clone> BaseGroup<T> {
+impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
     pub fn new(max_seq_len: usize, splitters: &[T]) -> Self {
         let sequences = ArrayVec::<[Sequence<T>; _K]>::from_iter(
             iter::repeat_with(|| Sequence::new()).take(_K),
@@ -253,8 +253,14 @@ impl<T: Ord + Clone> BaseGroup<T> {
         result
     }
 
-    pub fn into_sequences(self) -> impl Iterator<Item = Sequence<T>> {
-        self.sequences.into_iter()
+    /// Destructures into the sequences and splitters. Note that invalid splitters are returned, too.
+    pub fn into_sequences(
+        self,
+    ) -> (
+        impl Iterator<Item = T> + 'a,
+        impl Iterator<Item = Sequence<T>> + 'a,
+    ) {
+        (self.distr.into_iter(), self.sequences.into_iter().rev())
     }
 }
 
@@ -423,6 +429,10 @@ mod test {
         let (val, _) = group.insert_sequence(2, seq, 1).unwrap();
         assert_eq!(val, 2 * _K - 3);
         assert_eq!(*group.max().unwrap(), 2 * _K - 4);
+
+        let (splits, seqs) = group.into_sequences();
+        assert_eq!(_K, seqs.count());
+        assert_eq!(_K - 1, splits.count());
     }
 
     #[test]
@@ -475,7 +485,6 @@ mod test {
             match group.push(i) {
                 Ok(_) => {}
                 Err(e) => {
-                    dbg!(i);
                     let mut remaining: Vec<usize> = e.remaining.collect();
                     remaining.sort();
                     assert_eq!(Vec::from_iter(0..=_M), remaining);
