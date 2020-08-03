@@ -93,9 +93,13 @@ impl<T: Ord> BaseGroup<T> {
         self.sequences.is_empty()
     }
 
-    // pub fn max_seq_len(&self) -> usize {
-    //     self.max_seq_len
-    // }
+    pub fn num_sequences(&self) -> usize {
+        self.sequences.len()
+    }
+
+    pub fn max_seq_len(&self) -> usize {
+        self.max_seq_len
+    }
 
     pub fn sequence_at(&mut self, idx: usize) -> &mut Sequence<T> {
         let rev_idx = Self::rev_idx(&self.sequences, idx);
@@ -276,11 +280,11 @@ impl<T: Ord> BufferedGroup<T> {
     }
 
     pub fn num_sequences(&self) -> usize {
-        self.base.sequences.len()
+        self.base.num_sequences()
     }
 
     pub fn max_seq_len(&self) -> usize {
-        self.base.max_seq_len
+        self.base.max_seq_len()
     }
 
     pub fn push<'a>(

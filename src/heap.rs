@@ -108,18 +108,10 @@ impl<T: Ord + Clone> Groups<T> {
                     .push(el)
                     .unwrap_or_else(|err| self.handle_deletion_heap_overflow(err.0))
             } else {
-                let group = self.group_list[idx - 1].as_mut();
-                let mapped = group.push(el).map_err(
-                    |GroupOverflowError {
-                         base_group,
-                         seq_idx,
-                         remaining,
-                     }| {
-                        base_group.forced_insert_all(remaining);
-                        seq_idx
-                    },
-                );
-                mapped.unwrap_or_else(|seq_idx| self.handle_group_overflow(idx, seq_idx))
+                let group_idx = idx - 1;
+                let group = self.group_list[group_idx].as_mut();
+                Self::resolve_overflow(group.push(el))
+                    .map(|seq_idx| self.handle_group_overflow(group_idx, seq_idx));
             }
         }
 
@@ -188,8 +180,7 @@ impl<T: Ord + Clone> Groups<T> {
             // if the first group does not exist yet, initialize it from the deletion heap
             let step = (_M + 1) as f64 / (_K + 1) as f64;
             let first = step.round() as usize;
-            let splitter = elements[first].clone();
-            self.r_distr.add_splitter(splitter);
+            self.r_distr.add_splitter(elements[first].clone());
 
             let splitters: Vec<T> = (2..=_K)
                 .map(|i| elements[(i as f64 * step).round() as usize].clone())
@@ -233,16 +224,36 @@ impl<T: Ord + Clone> Groups<T> {
         }
         valid
     }
-}
 
-fn choose_sample<'a, T: Clone>(rng: &mut Rand, elements: &'a [T]) -> &'a [T] {
-    let num_steps = (elements.len() - 1) / _SAMPLING;
-    dbg!(num_steps);
-    dbg!(elements.len());
+    /// If an error occurs, returns the index of the overflowing sequence.
+    fn resolve_overflow<R, I: Iterator<Item = T>>(
+        result: Result<R, GroupOverflowError<T, I>>,
+    ) -> Option<usize> {
+        result
+            .err()
+            // the two steps are necessary to correctly resolve the lifetimes
+            .map(
+                |GroupOverflowError {
+                     base_group,
+                     seq_idx,
+                     remaining,
+                 }| {
+                    base_group.forced_insert_all(remaining);
+                    seq_idx
+                },
+            )
+    }
 
-    let step_idx = rng.gen_range(0, num_steps);
-    let start = _SAMPLING * step_idx;
-    &elements[start..(start + _SAMPLING)]
+    // TODO: fix
+    fn choose_sample<'a>(rng: &mut Rand, elements: &'a [T]) -> &'a [T] {
+        let num_steps = (elements.len() - 1) / _SAMPLING;
+        dbg!(num_steps); // -
+        dbg!(elements.len()); // -
+
+        let step_idx = rng.gen_range(0, num_steps);
+        let start = _SAMPLING * step_idx;
+        &elements[start..(start + _SAMPLING)]
+    }
 }
 
 #[cfg(test)]
