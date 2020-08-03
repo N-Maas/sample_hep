@@ -74,6 +74,7 @@ where
 
     /// Inserts the splitter at the appropriate position, moving the remaining splitters to the right and returning the largest one.
     fn insert_splitter_at_idx(&mut self, splitter: T, idx: usize) -> T {
+        debug_assert!(idx < self.len());
         let el_type = element_type(idx, self.len());
 
         if splitter < *self.get(idx) {
@@ -275,6 +276,7 @@ impl<T: Ord> Distribute<T> for KDistribute<T> {
     }
 
     fn splitter_at(&self, idx: usize) -> &T {
+        debug_assert!(idx < self.tree.len());
         let tree_idx = self.tree.select_tree_index(idx);
         self.tree.get(tree_idx)
     }
@@ -286,6 +288,7 @@ impl<T: Ord> Distribute<T> for KDistribute<T> {
     }
 
     fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
+        debug_assert!(idx < self.tree.len());
         self.tree.replace_splitter(splitter, idx)
     }
 
@@ -356,17 +359,23 @@ impl<T: Ord> Distribute<T> for RDistribute<T> {
     }
 
     fn splitter_at(&self, idx: usize) -> &T {
+        debug_assert!(idx < self.tree.len());
         let tree_idx = self.tree.select_tree_index(idx);
         self.tree.get(tree_idx)
     }
 
     fn insert_splitter(&mut self, splitter: T) -> T {
+        if self.tree.len() == 0 {
+            return splitter;
+        }
+
         let result = self.tree.insert_splitter_at_idx(splitter, 0);
         debug_assert!(self.tree.structure_check());
         result
     }
 
     fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
+        debug_assert!(idx < self.tree.len());
         self.tree.replace_splitter(splitter, idx)
     }
 
