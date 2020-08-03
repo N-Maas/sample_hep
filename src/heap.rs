@@ -1,10 +1,13 @@
-use crate::groups::*;
-use crate::params::*;
-use crate::primitives::*;
+use crate::{groups::*, params::*, primitives::*};
+use rand::{Rng, SeedableRng};
+use rand_pcg::Pcg32;
 use smallvec::SmallVec;
 use std::iter;
 
+type Rand = Pcg32;
+
 // TODO: implement Clone?
+// TODO: try to reduce size a bit?
 #[derive(Debug)]
 pub struct SampleHeap<T: Ord + Clone> {
     len: usize,
@@ -18,6 +21,7 @@ impl<T: Ord + Clone> SampleHeap<T> {
             len: 0,
             insertion_heap: BufferHeap::new(),
             groups: Groups {
+                rng: Rand::from_seed([0; 16]),
                 r_distr: RDistribute::new(),
                 deletion_heap: BufferHeap::new(),
                 group_list: SmallVec::new(),
@@ -80,6 +84,7 @@ impl<T: Ord + Clone> SampleHeap<T> {
 
 #[derive(Debug)]
 struct Groups<T: Ord + Clone> {
+    rng: Rand,
     r_distr: RDistribute<T>,
     deletion_heap: BufferHeap<T>,
     // note that a BufferedGroup is really large and thus moves should be avoided
@@ -186,6 +191,16 @@ impl<T: Ord + Clone> Groups<T> {
         }
         valid
     }
+}
+
+fn choose_sample<'a, T: Clone>(rng: &mut Rand, elements: &'a [T]) -> &'a [T] {
+    let num_steps = (elements.len() - 1) / _SAMPLING;
+    dbg!(num_steps);
+    dbg!(elements.len());
+
+    let step_idx = rng.gen_range(0, num_steps);
+    let start = _SAMPLING * step_idx;
+    &elements[start..(start + _SAMPLING)]
 }
 
 #[cfg(test)]

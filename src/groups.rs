@@ -1,5 +1,4 @@
-use crate::params::*;
-use crate::primitives::*;
+use crate::{params::*, primitives::*};
 
 use arrayvec::ArrayVec;
 use std::{cmp::Reverse, collections::BinaryHeap, fmt::Debug, iter, iter::FromIterator, mem};
@@ -246,9 +245,9 @@ impl<T: Ord + Clone> BaseGroup<T> {
         // minimal elements are distributed to either index 0 or the minimal sequence
         // 0 is correctly adjusted by the rev_idx function
         if !self.sequences.is_empty() {
-            let min = self.distr.splitter_at(0);
+            let splitter = self.distr.splitter_at(0).clone();
             self.distr
-                .replace_splitter(min.clone(), _K - self.sequences.len() - 1);
+                .replace_splitter(splitter, _K - self.sequences.len() - 1);
         }
         debug_assert!(self.structure_check());
         result
