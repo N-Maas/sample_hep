@@ -275,9 +275,13 @@ impl<T: Ord> BufferedGroup<T> {
         self.base.is_empty() && self.buffer.is_empty()
     }
 
-    // pub fn max_seq_len(&self) -> usize {
-    //     self.max_seq_len
-    // }
+    pub fn num_sequences(&self) -> usize {
+        self.base.sequences.len()
+    }
+
+    pub fn max_seq_len(&self) -> usize {
+        self.base.max_seq_len
+    }
 
     pub fn push<'a>(
         &'a mut self,
@@ -316,7 +320,6 @@ impl<T: Ord> BufferedGroup<T> {
         }
         self.base.sequences.last_mut().unwrap()
     }
-
     /// used for checking invariants
     pub fn structure_check(&self) -> bool {
         self.base.structure_check()
@@ -351,6 +354,12 @@ impl<T: Ord + Clone> BufferedGroup<T> {
             base,
             buffer: GroupBuffer::new(),
         }
+    }
+
+    /// Adds a new smallest sequence and splitter if the groups number of sequences is not full.
+    /// The specified splitter must be bigger then the sequence.
+    pub fn push_sequence(&mut self, splitter: T, seq: Sequence<T>) {
+        self.base.push_sequence(splitter, seq);
     }
 }
 

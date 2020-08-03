@@ -2,9 +2,11 @@ use crate::{groups::*, params::*, primitives::*};
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg32;
 use smallvec::SmallVec;
-use std::iter;
+use std::{iter, iter::FromIterator, mem};
 
 type Rand = Pcg32;
+
+// TODO replace Iterator with IntoIter in arguments
 
 // TODO: implement Clone?
 // TODO: try to reduce size a bit?
@@ -124,6 +126,52 @@ impl<T: Ord + Clone> Groups<T> {
         debug_assert!(self.structure_check());
     }
 
+    /// Insertion into an existing group. Each sequence except the first must be associated to a larger splitter.
+    /// For the first sequence, the according splitter from the RDistribute is used.
+    /// Thus, the number of splitter must be one less then the number of sequences.
+    fn insert_sequences_to_group(
+        &mut self,
+        group_idx: usize,
+        splitter: T,
+        splitters: impl Iterator<Item = T>,
+        seqs: impl Iterator<Item = Sequence<T>>,
+    ) {
+        debug_assert!(group_idx < self.group_list.len());
+        debug_assert!(splitter <= *self.r_distr.splitter_at(group_idx));
+
+        let first_splitter = self.r_distr.replace_splitter(splitter, group_idx);
+        let mut iter = splitters.chain(iter::once(first_splitter)).zip(seqs);
+
+        // push new sequences to the group
+        let group = &mut self.group_list[group_idx];
+        let max_seq_len = group.max_seq_len();
+        for (splitter, mut seq) in &mut iter {
+            if group.num_sequences() == _K {
+                break;
+            }
+
+            // TODO: What is the right strategy for filling a group?
+            // Maybe sequence should be filled only to half?
+            let first_seq = group.first_or_insert();
+            if first_seq.len() + seq.len() <= max_seq_len {
+                first_seq.append(&mut seq);
+            } else {
+                group.push_sequence(splitter, seq);
+            }
+        }
+
+        // if the group is full, append to the first sequence
+        let first_seq = group.first_or_insert();
+        for (_, ref mut seq) in iter {
+            first_seq.append(seq);
+        }
+        if first_seq.len() > max_seq_len {
+            self.handle_group_overflow(group_idx, 0);
+        }
+
+        debug_assert!(self.structure_check());
+    }
+
     // TODO: use quickselect or a sampled element instead of sorting?
     fn handle_deletion_heap_overflow(&mut self, remaining: T) {
         let max_seq_len = _M;
@@ -137,6 +185,7 @@ impl<T: Ord + Clone> Groups<T> {
         debug_assert!(elements.len() == _M + 1);
 
         if self.group_list.is_empty() {
+            // if the first group does not exist yet, initialize it from the deletion heap
             let step = (_M + 1) as f64 / (_K + 1) as f64;
             let first = step.round() as usize;
             let splitter = elements[first].clone();
@@ -150,18 +199,11 @@ impl<T: Ord + Clone> Groups<T> {
             self.group_list
                 .push(Box::new(BufferedGroup::from_base_group(base_group)));
         } else {
+            // otherwise, push half of the elements into the first group
             let mid = elements.len() / 2;
-            let seq = self.group_list.first_mut().unwrap().first_or_insert();
-            for el in elements.drain((mid + 1)..elements.len()) {
-                seq.push(el);
-            }
-            if seq.len() > max_seq_len {
-                self.handle_group_overflow(0, 0);
-            }
-
             let splitter = elements[mid].clone();
-            debug_assert!(splitter <= *self.r_distr.splitter_at(0));
-            self.r_distr.replace_splitter(splitter, 0);
+            let seq = Sequence::from_iter(elements.drain((mid + 1)..elements.len()));
+            self.insert_sequences_to_group(0, splitter, None.into_iter(), iter::once(seq));
         }
 
         for el in elements.into_iter() {
