@@ -185,34 +185,30 @@ impl<T: Ord> BaseGroup<T> {
     }
 
     /// used for checking invariants
+    // should we require that sequences are non-empty?
     pub fn structure_check(&self) -> bool {
         let idx_delta = _K - self.sequences.len();
-        self.distr.structure_check()
-            && self
-                .sequences
-                .iter()
-                .skip(1)
-                .rev()
-                .enumerate()
-                .all(|(i, s)| s.max().unwrap() <= self.distr.splitter_at(i + idx_delta))
-            && self
-                .sequences
-                .iter()
-                .rev()
-                .skip(1)
-                .enumerate()
-                .all(|(i, s)| s.min().unwrap() >= self.distr.splitter_at(i + idx_delta))
-            && self.sequences.iter().all(|s| s.len() <= self.max_seq_len)
+
+        let mut valid = self.distr.structure_check();
+        let mut prev_max = self.sequences.last().map(|s| s.max()).flatten();
+        for (i, seq) in self.sequences.iter().rev().skip(1).enumerate() {
+            let splitter = self.distr.splitter_at(i + idx_delta);
+            valid &= seq.len() <= self.max_seq_len;
+            valid &= prev_max.map_or(true, |m| m <= splitter);
+            valid &= seq.min().map_or(true, |m| splitter <= m);
+            prev_max = seq.max()
+        }
+        valid && self.sequences.iter().all(|s| s.len() <= self.max_seq_len)
     }
 
     /// used for checking invariants
     pub fn min(&self) -> Option<&T> {
-        self.sequences.last().map(|s| s.min().unwrap())
+        self.sequences.last().map(|s| s.min()).flatten()
     }
 
     /// used for checking invariants
     pub fn max(&self) -> Option<&T> {
-        self.sequences.first().map(|s| s.max().unwrap())
+        self.sequences.first().map(|s| s.max()).flatten()
     }
 }
 
