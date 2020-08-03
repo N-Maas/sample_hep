@@ -7,6 +7,7 @@ use std::iter;
 // TODO: implement Clone?
 #[derive(Debug)]
 pub struct SampleHeap<T: Ord + Clone> {
+    len: usize,
     insertion_heap: BufferHeap<T>,
     groups: Groups<T>,
 }
@@ -14,6 +15,7 @@ pub struct SampleHeap<T: Ord + Clone> {
 impl<T: Ord + Clone> SampleHeap<T> {
     pub fn new() -> Self {
         Self {
+            len: 0,
             insertion_heap: BufferHeap::new(),
             groups: Groups {
                 r_distr: RDistribute::new(),
@@ -21,6 +23,21 @@ impl<T: Ord + Clone> SampleHeap<T> {
                 group_list: SmallVec::new(),
             },
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        let result = self.len == 0;
+        // TODO: remove this when sufficiently tested
+        debug_assert!(
+            self.insertion_heap.is_empty()
+                && self.groups.deletion_heap.is_empty()
+                && self.groups.group_list.iter().all(|g| g.is_empty()) == result
+        );
+        result
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
     }
 
     pub fn pop(&mut self) -> Option<T> {
@@ -36,11 +53,15 @@ impl<T: Ord + Clone> SampleHeap<T> {
             _ => false,
         };
 
-        if remove_from_del_heap {
+        let result = if remove_from_del_heap {
             self.groups.deletion_heap.pop()
         } else {
             self.insertion_heap.pop()
+        };
+        if result.is_some() {
+            self.len -= 1;
         }
+        result
     }
 
     pub fn push(&mut self, el: T) {
@@ -49,7 +70,8 @@ impl<T: Ord + Clone> SampleHeap<T> {
             .unwrap_or_else(|HeapOverflowError(remaining)| {
                 let iter = self.insertion_heap.drain().chain(iter::once(remaining));
                 self.groups.insert_all(iter);
-            })
+            });
+        self.len += 1;
     }
 }
 
