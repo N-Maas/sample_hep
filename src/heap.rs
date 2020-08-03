@@ -68,8 +68,11 @@ impl<T: Ord + Clone> SampleHeap<T> {
         self.insertion_heap
             .push(el)
             .unwrap_or_else(|HeapOverflowError(remaining)| {
-                let iter = self.insertion_heap.drain().chain(iter::once(remaining));
-                self.groups.insert_all(iter);
+                // The remaining element should not be appended to the iterator, because this would an unnecessary
+                // overflow of the deletion heap when emptying the insertion heap for the first time.
+                self.groups.insert_all(self.insertion_heap.drain());
+                // can not fail as the heap was emptied
+                self.insertion_heap.push(remaining).ok().unwrap();
             });
         self.len += 1;
     }
@@ -98,7 +101,7 @@ impl<T: Ord + Clone> Groups<T> {
                     .push(el)
                     .unwrap_or_else(|err| self.handle_deletion_heap_overflow(err.0))
             } else {
-                let group = self.group_list[idx].as_mut();
+                let group = self.group_list[idx - 1].as_mut();
                 let mapped = group.push(el).map_err(
                     |GroupOverflowError {
                          base_group,
@@ -112,6 +115,8 @@ impl<T: Ord + Clone> Groups<T> {
                 mapped.unwrap_or_else(|seq_idx| self.handle_group_overflow(idx, seq_idx))
             }
         }
+
+        debug_assert!(self.structure_check());
     }
 
     // TODO: use quickselect or a sampled element instead of sorting?
@@ -127,18 +132,18 @@ impl<T: Ord + Clone> Groups<T> {
         debug_assert!(elements.len() == _M + 1);
 
         if self.group_list.is_empty() {
-            let step = _M as f64 / (_K + 1) as f64;
-            let first = step.round() as usize - 1;
+            let step = (_M + 1) as f64 / (_K + 1) as f64;
+            let first = step.round() as usize;
+            let splitter = elements[first].clone();
+            self.r_distr.add_splitter(splitter);
+
             let splitters: Vec<T> = (2..=_K)
-                .map(|i| elements[(i as f64 * step).round() as usize - 1].clone())
+                .map(|i| elements[(i as f64 * step).round() as usize].clone())
                 .collect();
             let mut base_group = BaseGroup::new(max_seq_len, &splitters);
-            base_group.forced_insert_all(elements.drain((first + 1)..elements.len()));
+            base_group.forced_insert_all(elements.drain(first..elements.len()));
             self.group_list
                 .push(Box::new(BufferedGroup::from_base_group(base_group)));
-
-            let splitter = elements[first].clone();
-            self.r_distr.insert_splitter(splitter);
         } else {
             let mid = elements.len() / 2;
             let seq = self.group_list.first_mut().unwrap().first_or_insert();
@@ -158,13 +163,57 @@ impl<T: Ord + Clone> Groups<T> {
             // can not fail as the heap was emptied
             self.deletion_heap.push(el).ok().unwrap();
         }
+
+        debug_assert!(self.structure_check());
     }
 
     fn handle_group_overflow(&mut self, group_idx: usize, seq_idx: usize) {
         todo!();
     }
 
-    fn init_group_from(max_seq_len: usize, elements: Vec<T>) -> BaseGroup<T> {
-        todo!();
+    /// used for checking invariants
+    pub fn structure_check(&self) -> bool {
+        assert_eq!(self.group_list.len(), self.r_distr.len());
+
+        let mut valid = self.r_distr.structure_check();
+        let mut prev_max = self.deletion_heap.max();
+        for (i, group) in self.group_list.iter().enumerate() {
+            let splitter = self.r_distr.splitter_at(i);
+            valid &= group.structure_check();
+            valid &= prev_max.map_or(true, |m| m <= splitter);
+            valid &= group.min().map_or(true, |m| splitter <= m);
+            prev_max = group.max()
+        }
+        valid
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_heaps_only() {
+        let mut s_heap = SampleHeap::new();
+
+        for i in 0..(2 * _M) {
+            assert_eq!(i, s_heap.len());
+            s_heap.push(i);
+        }
+        assert!(s_heap.groups.structure_check());
+        for i in 0.._M {
+            assert_eq!(Some(i), s_heap.pop());
+        }
+        assert_eq!(_M, s_heap.len());
+    }
+
+    #[test]
+    fn test_deletion_heap_overflow() {
+        let mut s_heap = SampleHeap::new();
+
+        for i in (0.._M).chain((0.._M).rev()).chain(0..=_M) {
+            s_heap.push(i);
+        }
+        assert!(s_heap.groups.structure_check());
     }
 }
