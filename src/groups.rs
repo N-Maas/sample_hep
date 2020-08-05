@@ -164,7 +164,7 @@ impl<T: Ord> BaseGroup<T> {
             ))
         };
 
-        debug_assert!(self.structure_check());
+        debug_assert!(self.base_structure_check());
         result
     }
 
@@ -187,21 +187,26 @@ impl<T: Ord> BaseGroup<T> {
         }
     }
 
-    /// used for checking invariants
     // should we require that sequences are non-empty?
-    pub fn structure_check(&self) -> bool {
+    /// used for checking invariants
+    /// - does not check sequence sizes
+    pub fn base_structure_check(&self) -> bool {
         let idx_delta = _K - self.sequences.len();
 
         let mut valid = self.distr.structure_check();
         let mut prev_max = self.sequences.last().map(|s| s.max()).flatten();
         for (i, seq) in self.sequences.iter().rev().skip(1).enumerate() {
             let splitter = self.distr.splitter_at(i + idx_delta);
-            valid &= seq.len() <= self.max_seq_len;
             valid &= prev_max.map_or(true, |m| m <= splitter);
             valid &= seq.min().map_or(true, |m| splitter <= m);
             prev_max = seq.max()
         }
-        valid && self.sequences.iter().all(|s| s.len() <= self.max_seq_len)
+        valid
+    }
+
+    /// used for checking invariants
+    pub fn structure_check(&self) -> bool {
+        self.base_structure_check() && self.sequences.iter().all(|s| s.len() <= self.max_seq_len)
     }
 
     /// used for checking invariants
@@ -239,7 +244,7 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
             self.distr.replace_splitter(splitter.clone(), i);
         }
         self.sequences.push(seq);
-        debug_assert!(self.structure_check());
+        debug_assert!(self.base_structure_check());
     }
 
     pub fn pop_sequence(&mut self) -> Option<Sequence<T>> {
@@ -253,7 +258,7 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
             self.distr
                 .replace_splitter(splitter, _K - self.sequences.len() - 1);
         }
-        debug_assert!(self.structure_check());
+        debug_assert!(self.base_structure_check());
         result
     }
 
