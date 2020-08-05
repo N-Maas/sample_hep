@@ -1,8 +1,9 @@
 use crate::{groups::*, params::*, primitives::*};
+use arrayvec::ArrayVec;
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg32;
 use smallvec::SmallVec;
-use std::{iter, iter::FromIterator, mem};
+use std::{fmt::Debug, iter, iter::FromIterator, mem};
 
 type Rand = Pcg32;
 
@@ -206,7 +207,81 @@ impl<T: Ord + Clone> Groups<T> {
     }
 
     fn handle_group_overflow(&mut self, group_idx: usize, seq_idx: usize) {
-        todo!();
+        debug_assert!(group_idx < self.group_list.len() && seq_idx < _K);
+        let num_groups = self.group_list.len();
+        let base_group = self.group_list[group_idx].clear_buffer_forced();
+        let max_seq_len = base_group.max_seq_len();
+
+        // split the overflowing sequence, removing the biggest sequence from the group
+        let (big_splitter, big_sequence) = {
+            let small_seq = base_group.sequence_at(seq_idx);
+            let mut big_seq = Sequence::new();
+            let elements = mem::replace(small_seq, Sequence::new()).into_vec();
+            let splitter = {
+                let mut sample = Self::choose_sample(&mut self.rng, &elements);
+                sample.sort();
+                sample[_SAMPLING / 2].clone()
+            };
+
+            for el in elements.into_iter() {
+                if el < splitter {
+                    small_seq.push(el);
+                } else {
+                    big_seq.push(el);
+                }
+            }
+            if seq_idx + 1 < _K {
+                base_group
+                    .insert_sequence(splitter, big_seq, seq_idx + 1)
+                    .map_or((None, None), |(el, seq)| (Some(el), Some(seq)))
+            } else {
+                (Some(splitter), Some(big_seq))
+            }
+        };
+
+        let n_skip = _K - base_group.num_sequences();
+        // can not fail as at least one sequence is present
+        let elements = base_group.pop_sequence().unwrap().into_vec();
+
+        // refill the group by distributing the first sequence
+        let new_splitters: ArrayVec<[T; _K - 1]> = {
+            let mut sample: ArrayVec<[T; (_K - 1) * _SAMPLING]> = ArrayVec::new();
+            for _ in 1.._K {
+                sample.extend(Self::choose_sample(&mut self.rng, &elements));
+            }
+            debug_assert!(sample.len() == (_K - 1) * _SAMPLING);
+            sample.sort();
+            sample
+                .into_iter()
+                .skip(_SAMPLING / 2)
+                .step_by(_SAMPLING)
+                .collect()
+        };
+        debug_assert!((new_splitters.len() == _K - 1));
+        let (splitters, sequences) =
+            mem::replace(base_group, BaseGroup::new(max_seq_len, &new_splitters)).into_sequences();
+
+        // it is very, really, extremely unlikely that an overflow happens here
+        Self::resolve_overflow(base_group.overflowing_insert_all(&mut elements.into_iter()))
+            .map(|seq_idx| self.handle_group_overflow(group_idx, seq_idx));
+
+        // now, move the remaining sequences to the next group
+        let sequences = sequences.chain(big_sequence.into_iter());
+        let mut splitters = splitters.skip(n_skip).chain(big_splitter.into_iter());
+        // can not fail as one additional sequence has been inserted
+        let small_splitter = splitters.next().unwrap();
+        if group_idx + 1 == num_groups {
+            // if the next group does not exist yet, initialize it with the available sequences
+            self.r_distr.add_splitter(small_splitter);
+            let splitters: Vec<T> = splitters.collect();
+            let base_group = BaseGroup::from_iter(_SCALING * max_seq_len, &splitters, sequences);
+            self.group_list
+                .push(Box::new(BufferedGroup::from_base_group(base_group)));
+        } else {
+            self.insert_sequences_to_group(group_idx + 1, small_splitter, splitters, sequences);
+        }
+
+        debug_assert!(self.structure_check());
     }
 
     /// used for checking invariants
@@ -244,15 +319,24 @@ impl<T: Ord + Clone> Groups<T> {
             )
     }
 
-    // TODO: fix
-    fn choose_sample<'a>(rng: &mut Rand, elements: &'a [T]) -> &'a [T] {
-        let num_steps = (elements.len() - 1) / _SAMPLING;
-        dbg!(num_steps); // -
-        dbg!(elements.len()); // -
+    fn choose_sample<'a>(rng: &mut Rand, elements: &'a [T]) -> ArrayVec<[T; _SAMPLING]> {
+        let num_steps = elements.len() / _SAMPLING;
+        let result: ArrayVec<[T; _SAMPLING]> = if num_steps == 0 {
+            iter::repeat(elements)
+                .flat_map(|els| els.iter().cloned())
+                .take(_SAMPLING)
+                .collect()
+        } else {
+            let step_idx = rng.gen_range(0, num_steps);
+            let start = _SAMPLING * step_idx;
+            elements[start..(start + _SAMPLING)]
+                .iter()
+                .cloned()
+                .collect()
+        };
 
-        let step_idx = rng.gen_range(0, num_steps);
-        let start = _SAMPLING * step_idx;
-        &elements[start..(start + _SAMPLING)]
+        assert!(result.len() == _SAMPLING);
+        result
     }
 }
 
@@ -280,6 +364,16 @@ mod test {
         let mut s_heap = SampleHeap::new();
 
         for i in (0.._M).chain((0.._M).rev()).chain(0..=_M) {
+            s_heap.push(i);
+        }
+        assert!(s_heap.groups.structure_check());
+    }
+
+    #[test]
+    fn test_group_overflow() {
+        let mut s_heap = SampleHeap::new();
+
+        for i in 0..(_K * _M) {
             s_heap.push(i);
         }
         assert!(s_heap.groups.structure_check());

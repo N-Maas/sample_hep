@@ -232,6 +232,18 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
         }
     }
 
+    pub fn from_iter(
+        max_seq_len: usize,
+        splitters: &[T],
+        iter: impl DoubleEndedIterator<Item = Sequence<T>>,
+    ) -> Self {
+        Self {
+            distr: KDistribute::new(splitters),
+            sequences: ArrayVec::<[Sequence<T>; _K]>::from_iter(iter.rev()),
+            max_seq_len,
+        }
+    }
+
     /// Adds a new smallest sequence and splitter if the groups number of sequences is not full.
     /// The specified splitter must be bigger then the sequence.
     pub fn push_sequence(&mut self, splitter: T, seq: Sequence<T>) {
@@ -267,7 +279,7 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
         self,
     ) -> (
         impl Iterator<Item = T> + 'a,
-        impl Iterator<Item = Sequence<T>> + 'a,
+        impl DoubleEndedIterator<Item = Sequence<T>> + 'a,
     ) {
         (self.distr.into_iter(), self.sequences.into_iter().rev())
     }

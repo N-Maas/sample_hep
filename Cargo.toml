@@ -8,5 +8,11 @@ edition = "2018"
 
 [dependencies]
 static_assertions = "1.1.0"
+# possibly smallvec can be exchanged with a usual Vec
 smallvec = "1.4.1"
-arrayvec = "0.5.1"
+rand = "0.7"
+rand_pcg = "0.2.1"
+
+[dependencies.arrayvec]
+version = "0.5.1"
+features = ["array-sizes-33-128", "array-sizes-129-255"]
