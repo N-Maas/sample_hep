@@ -1,4 +1,4 @@
-use crate::{params::*, primitives::*};
+use crate::{dbg_assertion, params::*, primitives::*};
 
 use arrayvec::ArrayVec;
 use std::{cmp::Reverse, collections::BinaryHeap, fmt::Debug, iter, iter::FromIterator, mem};
@@ -67,12 +67,12 @@ impl<T: Ord> BufferHeap<T> {
         self.data.drain().map(|el| el.0)
     }
 
-    /// used for checking invariants
-    pub fn min(&self) -> Option<&T> {
-        self.data.iter().min().map(|el| &el.0)
-    }
+    // #[cfg(any(debug, test))]
+    // pub fn min(&self) -> Option<&T> {
+    //     self.data.iter().min().map(|el| &el.0)
+    // }
 
-    /// used for checking invariants
+    #[cfg(any(debug, test))]
     pub fn max(&self) -> Option<&T> {
         self.data.iter().max().map(|el| &el.0)
     }
@@ -164,7 +164,7 @@ impl<T: Ord> BaseGroup<T> {
             ))
         };
 
-        debug_assert!(self.base_structure_check());
+        dbg_assertion!(self.base_structure_check());
         result
     }
 
@@ -188,7 +188,7 @@ impl<T: Ord> BaseGroup<T> {
     }
 
     // should we require that sequences are non-empty?
-    /// used for checking invariants
+    #[cfg(any(debug, test))]
     /// - does not check sequence sizes
     pub fn base_structure_check(&self) -> bool {
         let idx_delta = _K - self.sequences.len();
@@ -204,17 +204,17 @@ impl<T: Ord> BaseGroup<T> {
         valid
     }
 
-    /// used for checking invariants
+    #[cfg(any(debug, test))]
     pub fn structure_check(&self) -> bool {
         self.base_structure_check() && self.sequences.iter().all(|s| s.len() <= self.max_seq_len)
     }
 
-    /// used for checking invariants
+    #[cfg(any(debug, test))]
     pub fn min(&self) -> Option<&T> {
         self.sequences.last().map(|s| s.min()).flatten()
     }
 
-    /// used for checking invariants
+    #[cfg(any(debug, test))]
     pub fn max(&self) -> Option<&T> {
         self.sequences.first().map(|s| s.max()).flatten()
     }
@@ -256,7 +256,7 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
             self.distr.replace_splitter(splitter.clone(), i);
         }
         self.sequences.push(seq);
-        debug_assert!(self.base_structure_check());
+        dbg_assertion!(self.base_structure_check());
     }
 
     pub fn pop_sequence(&mut self) -> Option<Sequence<T>> {
@@ -270,7 +270,7 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
             self.distr
                 .replace_splitter(splitter, _K - self.sequences.len() - 1);
         }
-        debug_assert!(self.base_structure_check());
+        dbg_assertion!(self.base_structure_check());
         result
     }
 
@@ -341,17 +341,18 @@ impl<T: Ord> BufferedGroup<T> {
         }
         self.base.sequences.last_mut().unwrap()
     }
-    /// used for checking invariants
+
+    #[cfg(any(debug, test))]
     pub fn structure_check(&self) -> bool {
         self.base.structure_check()
     }
 
-    /// used for checking invariants
+    #[cfg(any(debug, test))]
     pub fn min(&self) -> Option<&T> {
         self.base.min().into_iter().chain(self.buffer.min()).min()
     }
 
-    /// used for checking invariants
+    #[cfg(any(debug, test))]
     pub fn max(&self) -> Option<&T> {
         self.base.max().into_iter().chain(self.buffer.max()).max()
     }

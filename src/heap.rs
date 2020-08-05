@@ -1,4 +1,4 @@
-use crate::{groups::*, params::*, primitives::*};
+use crate::{dbg_assertion, groups::*, params::*, primitives::*};
 use arrayvec::ArrayVec;
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg32;
@@ -116,7 +116,7 @@ impl<T: Ord + Clone> Groups<T> {
             }
         }
 
-        debug_assert!(self.structure_check());
+        dbg_assertion!(self.structure_check());
     }
 
     /// Insertion into an existing group. Each sequence except the first must be associated to a larger splitter.
@@ -162,7 +162,7 @@ impl<T: Ord + Clone> Groups<T> {
             self.handle_group_overflow(group_idx, 0);
         }
 
-        debug_assert!(self.structure_check());
+        dbg_assertion!(self.structure_check());
     }
 
     // TODO: use quickselect or a sampled element instead of sorting?
@@ -203,7 +203,7 @@ impl<T: Ord + Clone> Groups<T> {
             self.deletion_heap.push(el).ok().unwrap();
         }
 
-        debug_assert!(self.structure_check());
+        dbg_assertion!(self.structure_check());
     }
 
     fn handle_group_overflow(&mut self, group_idx: usize, seq_idx: usize) {
@@ -245,7 +245,8 @@ impl<T: Ord + Clone> Groups<T> {
 
         // refill the group by distributing the first sequence
         let new_splitters: ArrayVec<[T; _K - 1]> = {
-            let mut sample: ArrayVec<[T; (_K - 1) * _SAMPLING]> = ArrayVec::new();
+            // TODO: in theory, this could be replaced with an ArrayVec
+            let mut sample: Vec<T> = Vec::new();
             for _ in 1.._K {
                 sample.extend(Self::choose_sample(&mut self.rng, &elements));
             }
@@ -281,10 +282,10 @@ impl<T: Ord + Clone> Groups<T> {
             self.insert_sequences_to_group(group_idx + 1, small_splitter, splitters, sequences);
         }
 
-        debug_assert!(self.structure_check());
+        dbg_assertion!(self.structure_check());
     }
 
-    /// used for checking invariants
+    #[cfg(any(debug, test))]
     pub fn structure_check(&self) -> bool {
         assert_eq!(self.group_list.len(), self.r_distr.len());
 
