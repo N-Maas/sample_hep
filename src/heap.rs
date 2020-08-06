@@ -213,58 +213,17 @@ impl<T: Ord + Clone> Groups<T> {
         let max_seq_len = base_group.max_seq_len();
 
         // split the overflowing sequence, removing the biggest sequence from the group
-        let (big_splitter, big_sequence) = {
-            let small_seq = base_group.sequence_at(seq_idx);
-            let mut big_seq = Sequence::new();
-            let elements = mem::replace(small_seq, Sequence::new()).into_vec();
-            let splitter = {
-                let mut sample = Self::choose_sample(&mut self.rng, &elements);
-                sample.sort();
-                sample[_SAMPLING / 2].clone()
-            };
-
-            for el in elements.into_iter() {
-                if el < splitter {
-                    small_seq.push(el);
-                } else {
-                    big_seq.push(el);
-                }
-            }
-            if seq_idx + 1 < _K {
-                base_group
-                    .insert_sequence(splitter, big_seq, seq_idx + 1)
-                    .map_or((None, None), |(el, seq)| (Some(el), Some(seq)))
-            } else {
-                (Some(splitter), Some(big_seq))
-            }
-        };
-
+        let (big_splitter, big_sequence) = Self::split_in_two(&mut self.rng, base_group, seq_idx);
         let n_skip = _K - base_group.num_sequences();
-        // can not fail as at least one sequence is present
-        let elements = base_group.pop_sequence().unwrap().into_vec();
 
-        // refill the group by distributing the first sequence
-        let new_splitters: ArrayVec<[T; _K - 1]> = {
-            // TODO: in theory, this could be replaced with an ArrayVec
-            let mut sample: Vec<T> = Vec::new();
-            for _ in 1.._K {
-                sample.extend(Self::choose_sample(&mut self.rng, &elements));
-            }
-            debug_assert!(sample.len() == (_K - 1) * _SAMPLING);
-            sample.sort();
-            sample
-                .into_iter()
-                .skip(_SAMPLING / 2)
-                .step_by(_SAMPLING)
-                .collect()
-        };
-        debug_assert!((new_splitters.len() == _K - 1));
-        let (splitters, sequences) =
-            mem::replace(base_group, BaseGroup::new(max_seq_len, &new_splitters)).into_sequences();
+        // can not fail as at least one sequence is present
+        let elements = base_group.pop_sequence().unwrap();
+        let (old_group, overflow) =
+            Self::refill_group_from_sequence(&mut self.rng, base_group, elements);
 
         // it is very, really, extremely unlikely that an overflow happens here
-        Self::resolve_overflow(base_group.overflowing_insert_all(&mut elements.into_iter()))
-            .map(|seq_idx| self.handle_group_overflow(group_idx, seq_idx));
+        overflow.map(|seq_idx| self.handle_group_overflow(group_idx, seq_idx));
+        let (splitters, sequences) = old_group.into_sequences();
 
         // now, move the remaining sequences to the next group
         let sequences = sequences.chain(big_sequence.into_iter());
@@ -285,39 +244,83 @@ impl<T: Ord + Clone> Groups<T> {
         dbg_assertion!(self.structure_check());
     }
 
-    #[cfg(any(debug, test))]
-    pub fn structure_check(&self) -> bool {
-        assert_eq!(self.group_list.len(), self.r_distr.len());
+    /// Splits the sequence at the given index in two, returning the bigggest sequence
+    /// of the group which is removed by the operation if the group is full.
+    fn split_in_two(
+        rng: &mut Rand,
+        base_group: &mut BaseGroup<T>,
+        seq_idx: usize,
+    ) -> (Option<T>, Option<Sequence<T>>) {
+        let small_seq = base_group.sequence_at(seq_idx);
+        let mut big_seq = Sequence::new();
+        let elements = mem::replace(small_seq, Sequence::new()).into_vec();
+        let splitter = {
+            let mut sample = Self::choose_sample(rng, &elements);
+            sample.sort();
+            sample[_SAMPLING / 2].clone()
+        };
 
-        let mut valid = self.r_distr.structure_check();
-        let mut prev_max = self.deletion_heap.max();
-        for (i, group) in self.group_list.iter().enumerate() {
-            let splitter = self.r_distr.splitter_at(i);
-            valid &= group.structure_check();
-            valid &= prev_max.map_or(true, |m| m <= splitter);
-            valid &= group.min().map_or(true, |m| splitter <= m);
-            prev_max = group.max()
+        for el in elements.into_iter() {
+            if el < splitter {
+                small_seq.push(el);
+            } else {
+                big_seq.push(el);
+            }
         }
-        valid
+        if seq_idx + 1 < _K {
+            base_group
+                .insert_sequence(splitter, big_seq, seq_idx + 1)
+                .map_or((None, None), |(el, seq)| (Some(el), Some(seq)))
+        } else {
+            (Some(splitter), Some(big_seq))
+        }
     }
 
-    /// If an error occurs, returns the index of the overflowing sequence.
+    /// Replaces the group with a new one filled from the given sequence.
+    /// If the new group overflows, returns the index of the overflowing sequence.
+    fn refill_group_from_sequence(
+        rng: &mut Rand,
+        base_group: &mut BaseGroup<T>,
+        seq: Sequence<T>,
+    ) -> (BaseGroup<T>, Option<usize>) {
+        let max_seq_len = base_group.max_seq_len();
+        let elements = seq.into_vec();
+        let new_splitters: ArrayVec<[T; _K - 1]> = {
+            // TODO: in theory, this could be replaced with an ArrayVec
+            let mut sample: Vec<T> = Vec::new();
+            for _ in 1.._K {
+                sample.extend(Self::choose_sample(rng, &elements));
+            }
+            debug_assert!(sample.len() == (_K - 1) * _SAMPLING);
+            sample.sort();
+            sample
+                .into_iter()
+                .skip(_SAMPLING / 2)
+                .step_by(_SAMPLING)
+                .collect()
+        };
+        debug_assert!((new_splitters.len() == _K - 1));
+        let replaced = mem::replace(base_group, BaseGroup::new(max_seq_len, &new_splitters));
+        // TODO: forced_insert_all and scan afterwards?
+        let result = base_group.overflowing_insert_all(&mut elements.into_iter());
+
+        (replaced, Self::resolve_overflow(result))
+    }
+
+    /// If an error occurs, inserts the remaining elements and returns the index of the overflowing sequence.
     fn resolve_overflow<R, I: Iterator<Item = T>>(
         result: Result<R, GroupOverflowError<T, I>>,
     ) -> Option<usize> {
-        result
-            .err()
-            // the two steps are necessary to correctly resolve the lifetimes
-            .map(
-                |GroupOverflowError {
-                     base_group,
-                     seq_idx,
-                     remaining,
-                 }| {
-                    base_group.forced_insert_all(remaining);
-                    seq_idx
-                },
-            )
+        result.err().map(
+            |GroupOverflowError {
+                 base_group,
+                 seq_idx,
+                 remaining,
+             }| {
+                base_group.forced_insert_all(remaining);
+                seq_idx
+            },
+        )
     }
 
     fn choose_sample<'a>(rng: &mut Rand, elements: &'a [T]) -> ArrayVec<[T; _SAMPLING]> {
@@ -338,6 +341,22 @@ impl<T: Ord + Clone> Groups<T> {
 
         assert!(result.len() == _SAMPLING);
         result
+    }
+
+    #[cfg(any(debug, test))]
+    pub fn structure_check(&self) -> bool {
+        assert_eq!(self.group_list.len(), self.r_distr.len());
+
+        let mut valid = self.r_distr.structure_check();
+        let mut prev_max = self.deletion_heap.max();
+        for (i, group) in self.group_list.iter().enumerate() {
+            let splitter = self.r_distr.splitter_at(i);
+            valid &= group.structure_check();
+            valid &= prev_max.map_or(true, |m| m <= splitter);
+            valid &= group.min().map_or(true, |m| splitter <= m);
+            prev_max = group.max()
+        }
+        valid
     }
 }
 
