@@ -274,6 +274,26 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
         result
     }
 
+    pub fn scan_for_overflow(&self, start_idx: usize) -> Option<usize> {
+        let n_empty = _K - self.num_sequences();
+        let n_skip = usize::max(n_empty, start_idx) - n_empty;
+        let result = self
+            .sequences
+            .iter()
+            .enumerate()
+            .rev()
+            .skip(n_skip)
+            .find(|(_, seq)| seq.len() > self.max_seq_len)
+            .map(|(i, _)| _K - i - 1);
+
+        debug_assert!(
+            result.map_or(true, |i| self.sequences[Self::rev_idx(&self.sequences, i)]
+                .len()
+                > self.max_seq_len)
+        );
+        result
+    }
+
     /// Destructures into the sequences and splitters. Note that invalid splitters are returned, too.
     pub fn into_sequences(
         self,
@@ -304,6 +324,7 @@ impl<T: Ord> BufferedGroup<T> {
         self.base.max_seq_len()
     }
 
+    // TODO: rework to scanning afterwards for avoiding size checks?
     pub fn push<'a>(
         &'a mut self,
         el: T,
@@ -472,7 +493,7 @@ mod test {
         let mut group = BaseGroup {
             distr: KDistribute::new(&splitters),
             sequences: ArrayVec::new(),
-            max_seq_len: 5,
+            max_seq_len: 3,
         };
         assert!(group.structure_check());
 
@@ -496,6 +517,9 @@ mod test {
         assert_eq!(vec![1, 4, 5, 5], smallest);
 
         group.forced_insert_all(vec![3, 5, 7].into_iter());
+        let overflow = group.scan_for_overflow(0);
+        assert_eq!(overflow, Some(_K - 1));
+
         let mut smallest: Vec<i32> = group.pop_sequence().unwrap().drain().collect();
         smallest.sort();
         assert_eq!(vec![3, 5, 6, 7, 7], smallest);
