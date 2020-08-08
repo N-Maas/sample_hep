@@ -217,7 +217,7 @@ impl<T: Ord + Clone> Groups<T> {
         let n_skip = _K - base_group.num_sequences();
 
         // can not fail as at least one sequence is present
-        let elements = base_group.pop_sequence().unwrap();
+        let elements = base_group.pop_sequence().1.unwrap();
         let (old_group, overflow) =
             Self::refill_group_from_sequence(&mut self.rng, base_group, elements);
 

@@ -90,7 +90,7 @@ pub(crate) struct BaseGroup<T: Ord> {
 
 impl<T: Ord> BaseGroup<T> {
     pub fn is_empty(&self) -> bool {
-        self.sequences.is_empty()
+        self.sequences.iter().all(|seq| seq.len() == 0)
     }
 
     pub fn num_sequences(&self) -> usize {
@@ -259,19 +259,28 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
         dbg_assertion!(self.base_structure_check());
     }
 
-    pub fn pop_sequence(&mut self) -> Option<Sequence<T>> {
-        let result = self.sequences.pop();
+    /// Returns a bigger splitter, if available.
+    pub fn pop_sequence(&mut self) -> (Option<T>, Option<Sequence<T>>) {
+        match self.sequences.pop() {
+            Some(seq) => {
+                let smaller_splitter = self.distr.splitter_at(0).clone();
 
-        // necessary to ensure a valid structure of the splitters:
-        // minimal elements are distributed to either index 0 or the minimal sequence
-        // 0 is correctly adjusted by the rev_idx function
-        if !self.sequences.is_empty() {
-            let splitter = self.distr.splitter_at(0).clone();
-            self.distr
-                .replace_splitter(splitter, _K - self.sequences.len() - 1);
+                // necessary to ensure a valid structure of the splitters:
+                // minimal elements are distributed to either index 0 or the minimal sequence
+                // 0 is correctly adjusted by the rev_idx function
+                if !self.sequences.is_empty() {
+                    let splitter = self
+                        .distr
+                        .replace_splitter(smaller_splitter.clone(), _K - self.sequences.len() - 1);
+
+                    dbg_assertion!(self.base_structure_check());
+                    (Some(splitter), Some(seq))
+                } else {
+                    (None, Some(seq))
+                }
+            }
+            None => (None, None),
         }
-        dbg_assertion!(self.base_structure_check());
-        result
     }
 
     pub fn scan_for_overflow(&self, start_idx: usize) -> Option<usize> {
@@ -353,6 +362,12 @@ impl<T: Ord> BufferedGroup<T> {
     /// may exceed the size limits of the sequences
     pub fn clear_buffer_forced(&mut self) -> &mut BaseGroup<T> {
         self.base.forced_insert_all(self.buffer.drain());
+        &mut self.base
+    }
+
+    /// only usable if buffer is empty
+    pub fn base_group(&mut self) -> &mut BaseGroup<T> {
+        assert!(self.buffer.is_empty());
         &mut self.base
     }
 
@@ -507,12 +522,12 @@ mod test {
         assert_eq!(*group.min().unwrap(), 1);
         assert_eq!(*group.max().unwrap(), 7);
 
-        let mut smallest: Vec<i32> = group.pop_sequence().unwrap().drain().collect();
+        let mut smallest: Vec<i32> = group.pop_sequence().1.unwrap().drain().collect();
         smallest.sort();
         assert_eq!(vec![1, 2, 3], smallest);
 
         group.forced_insert_all(vec![1, 5].into_iter());
-        let mut smallest: Vec<i32> = group.pop_sequence().unwrap().drain().collect();
+        let mut smallest: Vec<i32> = group.pop_sequence().1.unwrap().drain().collect();
         smallest.sort();
         assert_eq!(vec![1, 4, 5, 5], smallest);
 
@@ -520,7 +535,7 @@ mod test {
         let overflow = group.scan_for_overflow(0);
         assert_eq!(overflow, Some(_K - 1));
 
-        let mut smallest: Vec<i32> = group.pop_sequence().unwrap().drain().collect();
+        let mut smallest: Vec<i32> = group.pop_sequence().1.unwrap().drain().collect();
         smallest.sort();
         assert_eq!(vec![3, 5, 6, 7, 7], smallest);
     }
