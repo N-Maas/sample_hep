@@ -122,18 +122,21 @@ impl<T: Ord + Clone> Groups<T> {
     /// Insertion into an existing group. Each sequence except the first must be associated to a larger splitter.
     /// For the first sequence, the according splitter from the RDistribute is used.
     /// Thus, the number of splitter must be one less then the number of sequences.
+    ///
+    /// Order: The splitters and sequences must be in decreasing order (order of insertion).
     fn insert_sequences_to_group(
         &mut self,
         group_idx: usize,
         splitter: T,
         splitters: impl Iterator<Item = T>,
-        seqs: impl Iterator<Item = Sequence<T>>,
+        sequences: impl Iterator<Item = Sequence<T>>,
     ) {
+        // TODO: incorrect order?!
         debug_assert!(group_idx < self.group_list.len());
         debug_assert!(splitter <= *self.r_distr.splitter_at(group_idx));
 
         let first_splitter = self.r_distr.replace_splitter(splitter, group_idx);
-        let mut iter = splitters.chain(iter::once(first_splitter)).zip(seqs);
+        let mut iter = splitters.chain(iter::once(first_splitter)).zip(sequences);
 
         // push new sequences to the group
         let group = &mut self.group_list[group_idx];
@@ -213,7 +216,8 @@ impl<T: Ord + Clone> Groups<T> {
         let max_seq_len = base_group.max_seq_len();
 
         // split the overflowing sequence, removing the biggest sequence from the group
-        let (big_splitter, big_sequence) = Self::split_in_two(&mut self.rng, base_group, seq_idx);
+        let (big_splitter, big_sequence) = Self::split_in_two(&mut self.rng, base_group, seq_idx)
+            .map_or((None, None), |(s, seq)| (Some(s), Some(seq)));
         let n_skip = _K - base_group.num_sequences();
 
         // can not fail as at least one sequence is present
@@ -226,8 +230,8 @@ impl<T: Ord + Clone> Groups<T> {
         let (splitters, sequences) = old_group.into_sequences();
 
         // now, move the remaining sequences to the next group
-        let sequences = sequences.chain(big_sequence.into_iter());
-        let mut splitters = splitters.skip(n_skip).chain(big_splitter.into_iter());
+        let sequences = sequences.chain(big_sequence);
+        let mut splitters = splitters.skip(n_skip).chain(big_splitter);
         // can not fail as one additional sequence has been inserted
         let small_splitter = splitters.next().unwrap();
         if group_idx + 1 == num_groups {
@@ -238,7 +242,12 @@ impl<T: Ord + Clone> Groups<T> {
             self.group_list
                 .push(Box::new(BufferedGroup::from_base_group(base_group)));
         } else {
-            self.insert_sequences_to_group(group_idx + 1, small_splitter, splitters, sequences);
+            self.insert_sequences_to_group(
+                group_idx + 1,
+                small_splitter,
+                splitters.collect::<Vec<_>>().into_iter().rev(),
+                sequences.rev(),
+            );
         }
 
         dbg_assertion!(self.structure_check());
@@ -250,7 +259,7 @@ impl<T: Ord + Clone> Groups<T> {
         rng: &mut Rand,
         base_group: &mut BaseGroup<T>,
         seq_idx: usize,
-    ) -> (Option<T>, Option<Sequence<T>>) {
+    ) -> Option<(T, Sequence<T>)> {
         let small_seq = base_group.sequence_at(seq_idx);
         let mut big_seq = Sequence::new();
         let elements = mem::replace(small_seq, Sequence::new()).into_vec();
@@ -268,11 +277,9 @@ impl<T: Ord + Clone> Groups<T> {
             }
         }
         if seq_idx + 1 < _K {
-            base_group
-                .insert_sequence(splitter, big_seq, seq_idx + 1)
-                .map_or((None, None), |(el, seq)| (Some(el), Some(seq)))
+            base_group.insert_sequence(splitter, big_seq, seq_idx + 1)
         } else {
-            (Some(splitter), Some(big_seq))
+            Some((splitter, big_seq))
         }
     }
 
@@ -300,6 +307,7 @@ impl<T: Ord + Clone> Groups<T> {
                 .collect()
         };
         debug_assert!((new_splitters.len() == _K - 1));
+        // TODO: set initial capacity of vecs to avoid unnecessary allocation
         let replaced = mem::replace(base_group, BaseGroup::new(max_seq_len, &new_splitters));
         // TODO: forced_insert_all and scan afterwards?
         let result = base_group.overflowing_insert_all(&mut elements.into_iter());
