@@ -120,7 +120,12 @@ impl<T: Ord + Clone> Groups<T> {
 
         if let Some(seq) = self.pull_non_empty_sequence(group_idx + 1) {
             let base_group = self.group_list[group_idx].base_group();
-            Self::refill_group_from_sequence(&mut self.rng, base_group, seq);
+            Self::refill_group_from_sequence(
+                &mut self.rng,
+                base_group,
+                seq,
+                &base_group.min_splitter().clone(),
+            );
 
             Self::scan_and_split(&mut self.rng, base_group).map(|(mut splitters, sequences)| {
                 // can not fail because scan_and_split does not return an empty iterator
@@ -303,8 +308,12 @@ impl<T: Ord + Clone> Groups<T> {
 
         // can not fail as at least one sequence is present
         let elements = base_group.pop_sequence().1.unwrap();
-        let (old_group, overflow) =
-            Self::refill_group_from_sequence(&mut self.rng, base_group, elements);
+        let (old_group, overflow) = Self::refill_group_from_sequence(
+            &mut self.rng,
+            base_group,
+            elements,
+            &base_group.min_splitter().clone(),
+        );
 
         // it is very, really, extremely unlikely that an overflow happens here
         overflow.map(|seq_idx| self.handle_group_overflow(group_idx, seq_idx));
@@ -377,8 +386,16 @@ impl<T: Ord + Clone> Groups<T> {
         rng: &mut Rand,
         base_group: &mut BaseGroup<T>,
         seq: Sequence<T>,
+        default: &T,
     ) -> (BaseGroup<T>, Option<usize>) {
         let max_seq_len = base_group.max_seq_len();
+        if seq.len() == 0 {
+            return (
+                mem::replace(base_group, BaseGroup::empty(max_seq_len, default.clone())),
+                None,
+            );
+        }
+
         let elements = seq.into_vec();
         let new_splitters: ArrayVec<[T; _K - 1]> = {
             // TODO: in theory, this could be replaced with an ArrayVec
@@ -447,6 +464,7 @@ impl<T: Ord + Clone> Groups<T> {
     }
 
     fn choose_sample<'a>(rng: &mut Rand, elements: &'a [T]) -> ArrayVec<[T; _SAMPLING]> {
+        debug_assert!(!elements.is_empty());
         let num_steps = elements.len() / _SAMPLING;
         let result: ArrayVec<[T; _SAMPLING]> = if num_steps == 0 {
             iter::repeat(elements)

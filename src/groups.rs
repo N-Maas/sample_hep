@@ -168,6 +168,10 @@ impl<T: Ord> BaseGroup<T> {
         result
     }
 
+    pub fn min_splitter(&self) -> &T {
+        self.distr.splitter_at(0)
+    }
+
     unsafe fn sequence_at_unchecked(
         sequences: &mut ArrayVec<[Sequence<T>; _K]>,
         idx: usize,
@@ -240,6 +244,15 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
         Self {
             distr: KDistribute::new(splitters),
             sequences: ArrayVec::<[Sequence<T>; _K]>::from_iter(iter.rev()),
+            max_seq_len,
+        }
+    }
+
+    pub fn empty(max_seq_len: usize, default: T) -> Self {
+        let splitters = ArrayVec::<[T; _K]>::from_iter(iter::repeat(default).take(_K));
+        Self {
+            distr: KDistribute::new(&splitters),
+            sequences: ArrayVec::new(),
             max_seq_len,
         }
     }

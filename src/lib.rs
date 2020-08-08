@@ -6,4 +6,5 @@ mod params;
 mod primitives;
 
 pub mod heap;
+pub use heap::SampleHeap;
 
