@@ -97,7 +97,88 @@ struct Groups<T: Ord + Clone> {
 
 impl<T: Ord + Clone> Groups<T> {
     fn refill_deletion_heap(&mut self) {
-        todo!();
+        debug_assert!(self.deletion_heap.is_empty());
+        if self.group_list.is_empty() {
+            return;
+        }
+
+        if let Some(mut seq) = self.pull_non_empty_sequence(0) {
+            for el in seq.drain() {
+                // can not fail as one sequence of the first group always fits into the heap
+                self.deletion_heap.push(el).ok().unwrap()
+            }
+        }
+
+        dbg_assertion!(self.structure_check());
+    }
+
+    fn refill_group(&mut self, group_idx: usize) {
+        debug_assert!(self.group_list[group_idx].is_empty());
+        if group_idx + 1 == self.group_list.len() {
+            return;
+        }
+
+        if let Some(seq) = self.pull_non_empty_sequence(group_idx + 1) {
+            let base_group = self.group_list[group_idx].base_group();
+            Self::refill_group_from_sequence(&mut self.rng, base_group, seq);
+
+            Self::scan_and_split(&mut self.rng, base_group).map(|(mut splitters, sequences)| {
+                // can not fail because scan_and_split does not return an empty iterator
+                let splitter = splitters.next().unwrap();
+                self.insert_sequences_to_group(
+                    group_idx,
+                    splitter,
+                    splitters.rev(),
+                    sequences.rev(),
+                );
+            });
+        }
+
+        dbg_assertion!(self.structure_check());
+    }
+
+    /// Tries to retrieve a sequence from the group with the given index,
+    /// recursively calling refill_group if necessary. Additionally adjusts the splitters.
+    fn pull_non_empty_sequence(&mut self, group_idx: usize) -> Option<Sequence<T>> {
+        debug_assert!(group_idx < self.group_list.len());
+
+        let base_group = self.clear_and_handle_overflow(group_idx);
+        if base_group.is_empty() {
+            self.refill_group(group_idx);
+        }
+
+        let base_group = self.group_list[group_idx].base_group();
+        while let (splitter, Some(seq)) = base_group.pop_sequence() {
+            if seq.len() > 0 {
+                match splitter {
+                    Some(s) => Some(s),
+                    None => {
+                        if self.r_distr.len() == group_idx + 1 {
+                            // TODO: cache groups to avoid unnecessary allocation?
+                            self.group_list.pop();
+                            self.r_distr.remove_splitter();
+                            None
+                        } else {
+                            Some(self.r_distr.splitter_at(group_idx + 1).clone())
+                        }
+                    }
+                }
+                .map(|splitter| {
+                    self.r_distr.replace_splitter(splitter, group_idx);
+                });
+                return Some(seq);
+            }
+        }
+        None
+    }
+
+    fn clear_and_handle_overflow(&mut self, group_idx: usize) -> &mut BaseGroup<T> {
+        debug_assert!(group_idx < self.group_list.len());
+
+        if let Some(seq_idx) = Self::resolve_overflow(self.group_list[group_idx].clear_buffer()) {
+            self.handle_group_overflow(group_idx, seq_idx);
+        }
+        self.group_list[group_idx].base_group()
     }
 
     // TODO: structure checks
@@ -315,6 +396,33 @@ impl<T: Ord + Clone> Groups<T> {
         (replaced, Self::resolve_overflow(result))
     }
 
+    fn scan_and_split(
+        rng: &mut Rand,
+        base_group: &mut BaseGroup<T>,
+    ) -> Option<(
+        impl DoubleEndedIterator<Item = T>,
+        impl DoubleEndedIterator<Item = Sequence<T>>,
+    )> {
+        let mut splitters = Vec::new();
+        let mut sequences = Vec::new();
+        let mut curr_idx = 0;
+        while let Some(seq_idx) = base_group.scan_for_overflow(curr_idx) {
+            // don't use idx + 1, it could be necessary to split the sequence again
+            curr_idx = seq_idx;
+            Self::split_in_two(rng, base_group, seq_idx).map(|(splitter, seq)| {
+                splitters.push(splitter);
+                sequences.push(seq)
+            });
+        }
+        dbg_assertion!(base_group.structure_check());
+
+        if splitters.is_empty() {
+            None
+        } else {
+            Some((splitters.into_iter(), sequences.into_iter()))
+        }
+    }
+
     /// If an error occurs, inserts the remaining elements and returns the index of the overflowing sequence.
     fn resolve_overflow<R, I: Iterator<Item = T>>(
         result: Result<R, GroupOverflowError<T, I>>,
@@ -405,5 +513,12 @@ mod test {
             s_heap.push(i);
         }
         assert!(s_heap.groups.structure_check());
+
+        let mut result = Vec::new();
+        while let Some(el) = s_heap.pop() {
+            result.push(el);
+        }
+        assert!(s_heap.is_empty());
+        assert_eq!(result, (0..(_K * _M)).collect::<Vec<_>>());
     }
 }

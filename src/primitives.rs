@@ -391,7 +391,7 @@ impl<T: Ord> Distribute<T> for RDistribute<T> {
 }
 
 impl<T: Ord + Clone> RDistribute<T> {
-    // adds a splitter at the last index by rebuilding the complete tree
+    /// adds a splitter at the last index by rebuilding the complete tree
     pub fn add_splitter(&mut self, s: T) {
         let mut buffer = SmallVec::<[T; 5]>::new();
         buffer.resize(self.tree.len(), s.clone());
@@ -401,6 +401,22 @@ impl<T: Ord + Clone> RDistribute<T> {
             .for_each(|(i, j)| buffer[i] = self.tree[j].clone());
         self.tree.push(s.clone());
         buffer.push(s);
+        flat_tree_index_order(self.tree.len())
+            .enumerate()
+            .for_each(|(i, j)| self.tree[j] = buffer[i].clone());
+
+        debug_assert!(self.tree.structure_check());
+    }
+    /// removes the last splitter by rebuilding the complete tree
+    pub fn remove_splitter(&mut self) {
+        let mut buffer = SmallVec::<[T; 5]>::new();
+        buffer.resize(self.tree.len(), self.tree[0].clone());
+
+        flat_tree_index_order(self.tree.len())
+            .enumerate()
+            .for_each(|(i, j)| buffer[i] = self.tree[j].clone());
+        self.tree.pop();
+        buffer.pop();
         flat_tree_index_order(self.tree.len())
             .enumerate()
             .for_each(|(i, j)| self.tree[j] = buffer[i].clone());
