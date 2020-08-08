@@ -351,10 +351,17 @@ impl<T: Ord + Clone> Groups<T> {
         };
 
         for el in elements.into_iter() {
-            if el < splitter {
-                small_seq.push(el);
-            } else {
-                big_seq.push(el);
+            match el.cmp(&splitter) {
+                std::cmp::Ordering::Less => small_seq.push(el),
+                std::cmp::Ordering::Equal => {
+                    // tie breaking depending on sequence length, to avoid an all-elements-are-equal worst case
+                    if small_seq.len() < big_seq.len() {
+                        small_seq.push(el)
+                    } else {
+                        big_seq.push(el)
+                    }
+                }
+                std::cmp::Ordering::Greater => big_seq.push(el),
             }
         }
         if seq_idx + 1 < _K {
