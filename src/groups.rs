@@ -229,6 +229,7 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
         let sequences = ArrayVec::<[Sequence<T>; _K]>::from_iter(
             iter::repeat_with(|| Sequence::new()).take(_K),
         );
+        // TODO: refactor to call Self::from_iter
         Self {
             distr: KDistribute::new(splitters),
             sequences,
@@ -241,8 +242,11 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
         splitters: &[T],
         iter: impl DoubleEndedIterator<Item = Sequence<T>>,
     ) -> Self {
+        debug_assert!(splitters.len() < _K && !splitters.is_empty());
+        let mut filled = vec![splitters.first().unwrap().clone(); _K - 1];
+        &mut filled[_K - 1 - splitters.len()..].clone_from_slice(splitters);
         Self {
-            distr: KDistribute::new(splitters),
+            distr: KDistribute::new(&filled),
             sequences: ArrayVec::<[Sequence<T>; _K]>::from_iter(iter.rev()),
             max_seq_len,
         }
@@ -551,6 +555,28 @@ mod test {
         let mut smallest: Vec<i32> = group.pop_sequence().1.unwrap().drain().collect();
         smallest.sort();
         assert_eq!(vec![3, 5, 6, 7, 7], smallest);
+    }
+
+    #[test]
+    fn base_group_from_iter() {
+        let mut seq1 = Sequence::new();
+        seq1.push(0);
+        let mut seq2 = Sequence::new();
+        seq2.push(2);
+
+        let splitters = [2; 1];
+        let mut group = BaseGroup::from_iter(2, &splitters, vec![seq1, seq2].into_iter());
+        assert!(group.structure_check());
+
+        group.forced_insert_all(vec![1, 3].into_iter());
+
+        let mut smallest: Vec<i32> = group.pop_sequence().1.unwrap().drain().collect();
+        smallest.sort();
+        assert_eq!(vec![0, 1], smallest);
+
+        let mut smallest: Vec<i32> = group.pop_sequence().1.unwrap().drain().collect();
+        smallest.sort();
+        assert_eq!(vec![2, 3], smallest);
     }
 
     #[test]
