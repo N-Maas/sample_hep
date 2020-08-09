@@ -18,7 +18,7 @@ const_assert!(_SAMPLING % 2 == 1);
 #[macro_export]
 macro_rules! dbg_assertion {
     ( $x:expr ) => {
-        #[cfg(any(debug, test))]
+        // #[cfg(any(debug, test))]
         debug_assert!($x);
     };
 }

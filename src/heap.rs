@@ -484,7 +484,7 @@ impl<T: Ord + Clone> Groups<T> {
         result
     }
 
-    #[cfg(any(debug, test))]
+    // #[cfg(any(debug, test))]
     pub fn structure_check(&self) -> bool {
         assert_eq!(self.group_list.len(), self.r_distr.len());
 

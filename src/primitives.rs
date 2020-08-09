@@ -463,12 +463,12 @@ impl<T: Ord> Sequence<T> {
         self.data
     }
 
-    #[cfg(any(debug, test))]
+    // #[cfg(any(debug, test))]
     pub fn min(&self) -> Option<&T> {
         self.data.iter().min()
     }
 
-    #[cfg(any(debug, test))]
+    // #[cfg(any(debug, test))]
     pub fn max(&self) -> Option<&T> {
         self.data.iter().max()
     }
@@ -517,12 +517,12 @@ impl<T: Ord> GroupBuffer<T> {
         self.data.drain(0..)
     }
 
-    #[cfg(any(debug, test))]
+    // #[cfg(any(debug, test))]
     pub fn min(&self) -> Option<&T> {
         self.data.iter().min()
     }
 
-    #[cfg(any(debug, test))]
+    // #[cfg(any(debug, test))]
     pub fn max(&self) -> Option<&T> {
         self.data.iter().max()
     }

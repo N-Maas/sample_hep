@@ -67,12 +67,12 @@ impl<T: Ord> BufferHeap<T> {
         self.data.drain().map(|el| el.0)
     }
 
-    // #[cfg(any(debug, test))]
+    // // #[cfg(any(debug, test))]
     // pub fn min(&self) -> Option<&T> {
     //     self.data.iter().min().map(|el| &el.0)
     // }
 
-    #[cfg(any(debug, test))]
+    // #[cfg(any(debug, test))]
     pub fn max(&self) -> Option<&T> {
         self.data.iter().max().map(|el| &el.0)
     }
@@ -192,7 +192,7 @@ impl<T: Ord> BaseGroup<T> {
     }
 
     // should we require that sequences are non-empty?
-    #[cfg(any(debug, test))]
+    // #[cfg(any(debug, test))]
     /// - does not check sequence sizes
     pub fn base_structure_check(&self) -> bool {
         let idx_delta = _K - self.sequences.len();
@@ -208,17 +208,17 @@ impl<T: Ord> BaseGroup<T> {
         valid
     }
 
-    #[cfg(any(debug, test))]
+    // #[cfg(any(debug, test))]
     pub fn structure_check(&self) -> bool {
         self.base_structure_check() && self.sequences.iter().all(|s| s.len() <= self.max_seq_len)
     }
 
-    #[cfg(any(debug, test))]
+    // #[cfg(any(debug, test))]
     pub fn min(&self) -> Option<&T> {
         self.sequences.last().map(|s| s.min()).flatten()
     }
 
-    #[cfg(any(debug, test))]
+    // #[cfg(any(debug, test))]
     pub fn max(&self) -> Option<&T> {
         self.sequences.first().map(|s| s.max()).flatten()
     }
@@ -391,17 +391,17 @@ impl<T: Ord> BufferedGroup<T> {
         self.base.sequences.last_mut().unwrap()
     }
 
-    #[cfg(any(debug, test))]
+    // #[cfg(any(debug, test))]
     pub fn structure_check(&self) -> bool {
         self.base.structure_check()
     }
 
-    #[cfg(any(debug, test))]
+    // #[cfg(any(debug, test))]
     pub fn min(&self) -> Option<&T> {
         self.base.min().into_iter().chain(self.buffer.min()).min()
     }
 
-    #[cfg(any(debug, test))]
+    // #[cfg(any(debug, test))]
     pub fn max(&self) -> Option<&T> {
         self.base.max().into_iter().chain(self.buffer.max()).max()
     }
