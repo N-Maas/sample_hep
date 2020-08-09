@@ -228,26 +228,20 @@ impl<T: Ord + Clone> Groups<T> {
         let group = &mut self.group_list[group_idx];
         let max_seq_len = group.max_seq_len();
         for (splitter, mut seq) in &mut iter {
-            if group.num_sequences() == _K {
-                break;
-            }
+            let num_seqs = group.num_sequences();
 
             // TODO: What is the right strategy for filling a group?
-            // Maybe sequence should be filled only to half?
+            // Maybe sequences should be filled only to half?
             let first_seq = group.first_or_insert();
-            if first_seq.len() + seq.len() <= max_seq_len {
+            if num_seqs == _K || first_seq.len() + seq.len() <= max_seq_len {
                 first_seq.append(&mut seq);
             } else {
                 group.push_sequence(splitter, seq);
             }
         }
 
-        // if the group is full, append to the first sequence
-        let first_seq = group.first_or_insert();
-        for (_, ref mut seq) in iter {
-            first_seq.append(seq);
-        }
-        if first_seq.len() > max_seq_len {
+        // handle overflow
+        if group.first_or_insert().len() > max_seq_len {
             self.handle_group_overflow(group_idx, 0);
         }
 
