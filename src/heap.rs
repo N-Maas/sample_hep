@@ -540,4 +540,21 @@ mod test {
         assert!(s_heap.is_empty());
         assert_eq!(result, (0..(_K * _M)).collect::<Vec<_>>());
     }
+
+    #[test]
+    fn test_group_overflow_reverse() {
+        let mut s_heap = SampleHeap::new();
+
+        for i in (0..(_K * _M)).rev() {
+            s_heap.push(i);
+        }
+        assert!(s_heap.groups.structure_check());
+
+        let mut result = Vec::new();
+        while let Some(el) = s_heap.pop() {
+            result.push(el);
+        }
+        assert!(s_heap.is_empty());
+        assert_eq!(result, (0..(_K * _M)).collect::<Vec<_>>());
+    }
 }
