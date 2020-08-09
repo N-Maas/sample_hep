@@ -118,6 +118,7 @@ impl<T: Ord + Clone> Groups<T> {
             return;
         }
 
+        let max_seq_len = self.group_list[group_idx + 1].max_seq_len();
         if let Some(seq) = self.pull_non_empty_sequence(group_idx + 1) {
             let base_group = self.group_list[group_idx].base_group();
             Self::refill_group_from_sequence(
@@ -130,6 +131,14 @@ impl<T: Ord + Clone> Groups<T> {
             Self::scan_and_split(&mut self.rng, base_group).map(|(mut splitters, sequences)| {
                 // can not fail because scan_and_split does not return an empty iterator
                 let splitter = splitters.next().unwrap();
+
+                // edge case: last group was removed by pull_non_empty_sequence
+                if group_idx + 1 == self.group_list.len() {
+                    // TODO: group cache
+                    self.group_list
+                        .push(Box::new(BufferedGroup::new(max_seq_len, splitter.clone())));
+                    self.r_distr.add_splitter(splitter.clone());
+                }
                 self.insert_sequences_to_group(
                     group_idx + 1,
                     splitter,
@@ -556,5 +565,18 @@ mod test {
         }
         assert!(s_heap.is_empty());
         assert_eq!(result, (0..(_K * _M)).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_refill_edge_case() {
+        let mut s_heap = SampleHeap::new();
+
+        for _ in (0..(4 * _M)).rev() {
+            s_heap.push(0);
+        }
+        assert!(s_heap.groups.structure_check());
+
+        while let Some(_) = s_heap.pop() {}
+        assert!(s_heap.is_empty());
     }
 }
