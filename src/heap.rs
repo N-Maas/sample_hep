@@ -222,12 +222,12 @@ impl<T: Ord + Clone> Groups<T> {
         debug_assert!(splitter <= *self.r_distr.splitter_at(group_idx));
 
         let first_splitter = self.r_distr.replace_splitter(splitter, group_idx);
-        let mut iter = splitters.chain(iter::once(first_splitter)).zip(sequences);
+        let iter = splitters.chain(iter::once(first_splitter)).zip(sequences);
 
         // push new sequences to the group
         let group = &mut self.group_list[group_idx];
         let max_seq_len = group.max_seq_len();
-        for (splitter, mut seq) in &mut iter {
+        for (splitter, mut seq) in iter {
             let num_seqs = group.num_sequences();
 
             // TODO: What is the right strategy for filling a group?
@@ -408,10 +408,10 @@ impl<T: Ord + Clone> Groups<T> {
         debug_assert!((new_splitters.len() == _K - 1));
         // TODO: set initial capacity of vecs to avoid unnecessary allocation
         let replaced = mem::replace(base_group, BaseGroup::new(max_seq_len, &new_splitters));
-        // TODO: forced_insert_all and scan afterwards?
-        let result = base_group.overflowing_insert_all(&mut elements.into_iter());
+        base_group.forced_insert_all(&mut elements.into_iter());
 
-        (replaced, Self::resolve_overflow(result))
+        // let caller handle scanning?
+        (replaced, base_group.scan_for_overflow(0))
     }
 
     fn scan_and_split(
