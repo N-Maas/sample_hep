@@ -131,7 +131,7 @@ impl<T: Ord + Clone> Groups<T> {
                 // can not fail because scan_and_split does not return an empty iterator
                 let splitter = splitters.next().unwrap();
                 self.insert_sequences_to_group(
-                    group_idx,
+                    group_idx + 1,
                     splitter,
                     splitters.rev(),
                     sequences.rev(),
