@@ -139,12 +139,7 @@ impl<T: Ord + Clone> Groups<T> {
                         .push(Box::new(BufferedGroup::new(max_seq_len, splitter.clone())));
                     self.r_distr.add_splitter(splitter.clone());
                 }
-                self.insert_sequences_to_group(
-                    group_idx + 1,
-                    splitter,
-                    splitters,
-                    sequences,
-                );
+                self.insert_sequences_to_group(group_idx + 1, splitter, splitters, sequences);
             });
         }
 
@@ -331,7 +326,12 @@ impl<T: Ord + Clone> Groups<T> {
             // if the next group does not exist yet, initialize it with the available sequences
             self.r_distr.add_splitter(small_splitter.clone());
             let splitters: Vec<T> = splitters.collect();
-            let base_group = BaseGroup::from_iter(_SCALING * max_seq_len, &splitters, sequences, small_splitter);
+            let base_group = BaseGroup::from_iter(
+                _SCALING * max_seq_len,
+                &splitters,
+                sequences,
+                small_splitter,
+            );
             self.group_list
                 .push(Box::new(BufferedGroup::from_base_group(base_group)));
         } else {
