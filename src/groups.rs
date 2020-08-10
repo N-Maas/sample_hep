@@ -102,14 +102,14 @@ impl<T: Ord> BaseGroup<T> {
     }
 
     pub fn sequence_at(&mut self, idx: usize) -> &mut Sequence<T> {
-        let rev_idx = Self::rev_idx(&self.sequences, idx);
+        let rev_idx = Self::rev_idx(idx);
         &mut self.sequences[rev_idx]
     }
 
     /// does not test size limit of the sequences
     pub fn forced_insert_all(&mut self, iter: impl Iterator<Item = T>) {
         for el in iter {
-            let idx = self.distr.distribute(&el);
+            let idx = self.distribute(&el);
             unsafe { Self::sequence_at_unchecked(&mut self.sequences, idx).push(el) }
         }
     }
@@ -119,7 +119,7 @@ impl<T: Ord> BaseGroup<T> {
         mut iter: &mut impl Iterator<Item = T>,
     ) -> Result<&mut Self, GroupOverflowError<T, iter::Once<T>>> {
         for el in &mut iter {
-            let idx = self.distr.distribute(&el);
+            let idx = self.distribute(&el);
             let sequence = unsafe { Self::sequence_at_unchecked(&mut self.sequences, idx) };
             if sequence.len() < self.max_seq_len {
                 sequence.push(el);
@@ -150,7 +150,7 @@ impl<T: Ord> BaseGroup<T> {
         debug_assert!(idx == _K || splitter <= *self.distr.splitter_at(idx - 1));
 
         let result = if !self.sequences.is_full() {
-            let rev_idx = Self::rev_idx(&self.sequences, idx - 1);
+            let rev_idx = Self::rev_idx(idx - 1);
             debug_assert!(rev_idx < self.sequences.len(), "idx={:?}", idx);
             self.sequences.insert(rev_idx, seq);
             self.distr.insert_splitter_at(splitter, idx - 2, true);
@@ -158,7 +158,7 @@ impl<T: Ord> BaseGroup<T> {
         } else if idx == _K {
             Some((splitter, seq))
         } else {
-            let rev_idx = Self::rev_idx(&self.sequences, idx);
+            let rev_idx = Self::rev_idx(idx);
             let larger_range = &mut self.sequences[0..=rev_idx];
             larger_range.rotate_left(1);
             Some((
@@ -180,18 +180,23 @@ impl<T: Ord> BaseGroup<T> {
         idx: usize,
     ) -> &mut Sequence<T> {
         // case distinction is currently necessary if group is not full
-        let rev_idx = Self::rev_idx(sequences, idx);
+        let rev_idx = Self::rev_idx(idx);
         debug_assert!(rev_idx < sequences.len(), "rev_idx={:?}", rev_idx);
         sequences.get_unchecked_mut(rev_idx)
     }
 
-    // TODO: the index scheme is a bit broken currently
-    fn rev_idx(sequences: &ArrayVec<[Sequence<T>; _K]>, idx: usize) -> usize {
+    fn distribute(&self, el: &T) -> usize {
+        let idx = self.distr.distribute(&el);
+        // TODO: the index scheme is a bit broken currently
         if idx == 0 {
-            sequences.len() - 1
+            _K - self.sequences.len()
         } else {
-            _K - idx - 1
+            idx
         }
+    }
+
+    fn rev_idx(idx: usize) -> usize {
+        _K - idx - 1
     }
 
     // should we require that sequences are non-empty?
@@ -317,7 +322,7 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
             .map(|(i, _)| _K - i - 1);
 
         debug_assert!(
-            result.map_or(true, |i| self.sequences[Self::rev_idx(&self.sequences, i)]
+            result.map_or(true, |i| self.sequences[Self::rev_idx(i)]
                 .len()
                 > self.max_seq_len)
         );
