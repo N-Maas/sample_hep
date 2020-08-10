@@ -136,30 +136,33 @@ impl<T: Ord> BaseGroup<T> {
 
     // TODO: replace sequence (?)
 
-    /// Inserts a sequence at the given index by specifying the next smaller splitter.
+    /// Inserts a sequence before the sequence that is currently at the given index.
+    /// The next smaller splitter is specified.
     /// If the number of sequences is full, the largest is removed and returned with the according splitter.
-    /// Insertion to first position is not possible.
+    /// Insertion to first position is not possible (as the splitter would be invalid).
     pub fn insert_sequence(
         &mut self,
         splitter: T,
         seq: Sequence<T>,
         idx: usize,
     ) -> Option<(T, Sequence<T>)> {
-        debug_assert!(idx < _K);
-        debug_assert!(splitter <= *self.distr.splitter_at(idx - 1));
-        let rev_idx = Self::rev_idx(&self.sequences, idx);
+        debug_assert!(idx > (_K - self.sequences.len()) && idx <= _K);
+        debug_assert!(idx == _K || splitter <= *self.distr.splitter_at(idx - 1));
 
         let result = if !self.sequences.is_full() {
+            let rev_idx = Self::rev_idx(&self.sequences, idx - 1);
             debug_assert!(rev_idx < self.sequences.len(), "idx={:?}", idx);
             self.sequences.insert(rev_idx, seq);
-            self.distr.insert_splitter(splitter);
+            self.distr.insert_splitter_at(splitter, idx - 2, true);
             None
+        } else if idx == _K {
+            Some((splitter, seq))
         } else {
-            debug_assert!(idx > 0);
+            let rev_idx = Self::rev_idx(&self.sequences, idx);
             let larger_range = &mut self.sequences[0..=rev_idx];
             larger_range.rotate_left(1);
             Some((
-                self.distr.insert_splitter(splitter),
+                self.distr.insert_splitter_at(splitter, idx - 1, false),
                 mem::replace(&mut larger_range[rev_idx], seq),
             ))
         };
@@ -241,9 +244,10 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
         max_seq_len: usize,
         splitters: &[T],
         iter: impl DoubleEndedIterator<Item = Sequence<T>>,
+        default: T,
     ) -> Self {
-        debug_assert!(splitters.len() < _K && !splitters.is_empty());
-        let mut filled = vec![splitters.first().unwrap().clone(); _K - 1];
+        debug_assert!(splitters.len() < _K);
+        let mut filled = vec![default; _K - 1];
         &mut filled[_K - 1 - splitters.len()..].clone_from_slice(splitters);
         Self {
             distr: KDistribute::new(&filled),
@@ -563,10 +567,15 @@ mod test {
         seq1.push(0);
         let mut seq2 = Sequence::new();
         seq2.push(2);
+        let mut seq3 = Sequence::new();
+        seq3.push(4);
 
-        let splitters = [2; 1];
-        let mut group = BaseGroup::from_iter(2, &splitters, vec![seq1, seq2].into_iter());
+        let splitters = [];
+        let mut group = BaseGroup::from_iter(2, &splitters, vec![seq1].into_iter(), 0);
         assert!(group.structure_check());
+
+        assert!(group.insert_sequence(4, seq3, _K).is_none());
+        assert!(group.insert_sequence(2, seq2, _K - 1).is_none());
 
         group.forced_insert_all(vec![1, 3].into_iter());
 

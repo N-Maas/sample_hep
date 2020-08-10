@@ -329,9 +329,9 @@ impl<T: Ord + Clone> Groups<T> {
         let small_splitter = splitters.next().unwrap();
         if group_idx + 1 == num_groups {
             // if the next group does not exist yet, initialize it with the available sequences
-            self.r_distr.add_splitter(small_splitter);
+            self.r_distr.add_splitter(small_splitter.clone());
             let splitters: Vec<T> = splitters.collect();
-            let base_group = BaseGroup::from_iter(_SCALING * max_seq_len, &splitters, sequences);
+            let base_group = BaseGroup::from_iter(_SCALING * max_seq_len, &splitters, sequences, small_splitter);
             self.group_list
                 .push(Box::new(BufferedGroup::from_base_group(base_group)));
         } else {
@@ -376,11 +376,7 @@ impl<T: Ord + Clone> Groups<T> {
                 std::cmp::Ordering::Greater => big_seq.push(el),
             }
         }
-        if seq_idx + 1 < _K {
-            base_group.insert_sequence(splitter, big_seq, seq_idx + 1)
-        } else {
-            Some((splitter, big_seq))
-        }
+        base_group.insert_sequence(splitter, big_seq, seq_idx + 1)
     }
 
     /// Replaces the group with a new one filled from the given sequence.
