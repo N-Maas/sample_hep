@@ -307,10 +307,12 @@ impl<T: Ord + Clone> Groups<T> {
         // split the overflowing sequence, removing the biggest sequence from the group
         let (big_splitter, big_sequence) = Self::split_in_two(&mut self.rng, base_group, seq_idx)
             .map_or((None, None), |(s, seq)| (Some(s), Some(seq)));
-        let n_skip = _K - base_group.num_sequences();
+        let n_skip = _K - base_group.num_sequences() + 1;
 
-        // can not fail as at least one sequence is present
-        let elements = base_group.pop_sequence().1.unwrap();
+        // can not fail as at least two sequences are present
+        let res = base_group.pop_sequence();
+        let small_splitter = res.0.unwrap();
+        let elements = res.1.unwrap();
         let (old_group, overflow) = Self::refill_group_from_sequence(
             &mut self.rng,
             base_group,
@@ -324,9 +326,7 @@ impl<T: Ord + Clone> Groups<T> {
 
         // now, move the remaining sequences to the next group
         let sequences = sequences.chain(big_sequence);
-        let mut splitters = splitters.skip(n_skip).chain(big_splitter);
-        // can not fail as one additional sequence has been inserted
-        let small_splitter = splitters.next().unwrap();
+        let splitters = splitters.skip(n_skip).chain(big_splitter);
         if group_idx + 1 == num_groups {
             // if the next group does not exist yet, initialize it with the available sequences
             self.r_distr.add_splitter(small_splitter.clone());
