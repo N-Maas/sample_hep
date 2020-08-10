@@ -26,8 +26,6 @@ pub(crate) trait Distribute<T: Ord> {
 
     fn splitter_at(&self, idx: usize) -> &T;
 
-    fn insert_splitter(&mut self, splitter: T) -> T;
-
     fn replace_splitter(&mut self, splitter: T, idx: usize) -> T;
 
     fn structure_check(&self) -> bool;
@@ -82,34 +80,6 @@ where
                 }
             })
             .all(|x| x)
-    }
-
-    /// Inserts the splitter at the appropriate position, moving the remaining splitters to the right and returning the largest one.
-    fn insert_splitter_at_idx(&mut self, splitter: T, idx: usize) -> T {
-        debug_assert!(idx < self.len());
-        let el_type = element_type(idx, self.len());
-
-        if splitter < *self.get(idx) {
-            match el_type {
-                TreeElement::Leaf => mem::replace(self.get_mut(idx), splitter),
-                TreeElement::UnaryNode(left) | TreeElement::Node(left, _) => {
-                    let new = self.insert_splitter_at_idx(splitter, left);
-                    let old = mem::replace(self.get_mut(idx), new);
-
-                    if let TreeElement::Node(_, right) = el_type {
-                        // causes unnecessary comparisons
-                        self.insert_splitter_at_idx(old, right)
-                    } else {
-                        old
-                    }
-                }
-            }
-        } else {
-            match el_type {
-                TreeElement::UnaryNode(_) | TreeElement::Leaf => splitter,
-                TreeElement::Node(_, right) => self.insert_splitter_at_idx(splitter, right),
-            }
-        }
     }
 
     fn select_tree_index(&self, splitter_idx: usize) -> usize {
@@ -316,13 +286,6 @@ impl<T: Ord> Distribute<T> for KDistribute<T> {
         self.tree.get(t_idx)
     }
 
-    // TODO is this even used?
-    fn insert_splitter(&mut self, splitter: T) -> T {
-        let result = self.tree.insert_splitter_at_idx(splitter, 0);
-        debug_assert!(self.tree.structure_check());
-        result
-    }
-
     fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
         debug_assert!(idx < self.tree.len());
         let t_idx = TREE_INDEX_LOOKUP[idx];
@@ -399,16 +362,6 @@ impl<T: Ord> Distribute<T> for RDistribute<T> {
         debug_assert!(idx < self.tree.len());
         let tree_idx = self.tree.select_tree_index(idx);
         self.tree.get(tree_idx)
-    }
-
-    fn insert_splitter(&mut self, splitter: T) -> T {
-        if self.tree.len() == 0 {
-            return splitter;
-        }
-
-        let result = self.tree.insert_splitter_at_idx(splitter, 0);
-        debug_assert!(self.tree.structure_check());
-        result
     }
 
     fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
@@ -599,16 +552,15 @@ mod test {
         let splitters = &Vec::from_iter(1.._K);
         let mut distr = KDistribute::<usize>::new(splitters);
 
-        assert_eq!(_SPLITS, distr.insert_splitter(_SPLITS));
-        assert_eq!(_SPLITS, distr.insert_splitter(0));
-        assert_eq!(_SPLITS - 1, distr.insert_splitter(1));
-        assert_eq!(_SPLITS - 2, distr.insert_splitter(2));
+        assert_eq!(_SPLITS, distr.insert_splitter_at(0, 0, false));
+        assert_eq!(_SPLITS - 1, distr.insert_splitter_at(1, 1, false));
+        assert_eq!(_SPLITS - 2, distr.insert_splitter_at(2, 3 ,false));
         assert_eq!(
             _SPLITS - 3,
             distr.replace_splitter(2 * _SPLITS + 3, _SPLITS - 1)
         );
         assert!(distr.structure_check());
-        assert_eq!(2 * _SPLITS + 3, distr.insert_splitter(3));
+        assert_eq!(2 * _SPLITS + 3, distr.insert_splitter_at(0, 0, false));
     }
 
     #[test]
