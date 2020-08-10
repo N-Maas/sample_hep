@@ -11,18 +11,18 @@ fuzz_target!(|elements: Vec<Option<u8>>| {
     for el in elements {
         match el {
             Some(val) => {
-                dbg!(val);
+                // dbg!(val);
                 heap.push(val);
                 bin_heap.push(Reverse(val));
             }
             None => {
-                println!(">>> pop <<<");
+                // println!(">>> pop <<<");
                 assert_eq!(heap.pop(), bin_heap.pop().map(|Reverse(x)| x), "bin_heap={:?}", &bin_heap);
             }
         }
     }
     while let Some(val) = heap.pop() {
-        println!(">>> pop <<<");
+        // println!(">>> pop <<<");
         assert_eq!(Some(val), bin_heap.pop().map(|Reverse(x)| x), "bin_heap={:?}", &bin_heap);
     }
     assert!(heap.is_empty());
