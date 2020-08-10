@@ -7,6 +7,18 @@ use std::{cmp::Ordering, convert::AsRef, fmt::Debug, iter::FromIterator, mem, op
 
 const _SPLITS: usize = _K - 1;
 
+// ----- lookup table for KDistribute ----- //
+
+lazy_static! {
+    static ref TREE_INDEX_LOOKUP: [usize; _SPLITS] = {
+        let mut table: MaybeUninit<[usize; _SPLITS]> = MaybeUninit::uninit();
+        flat_tree_index_order(_SPLITS)
+            .enumerate()
+            .for_each(|(i, j)| unsafe { (table.as_mut_ptr() as *mut usize).add(i).write(j) });
+        unsafe { table.assume_init() }
+    };
+}
+
 // ----- splitter primitives ----- //
 
 pub(crate) trait Distribute<T: Ord> {
@@ -234,7 +246,26 @@ pub(crate) struct KDistribute<T: Ord> {
     tree: [T; _SPLITS],
 }
 
-impl<T: Ord + Clone> KDistribute<T> {
+impl<T: Ord> KDistribute<T> {
+    /// Replaces the splitter at the specified index, shifting either the smaller
+    /// or bigger half of the remaining splitters and returning the removed splitter.
+    pub fn insert_splitter_at(&mut self, splitter: T, idx: usize, leftwards: bool) -> T {
+        let mut exchanged = splitter;
+        let indizes: ArrayVec<[usize; _SPLITS]> = if leftwards {
+            (0..=idx).rev().collect()
+        } else {
+            (idx.._SPLITS).collect()
+        };
+        for i in indizes {
+            let t_idx = TREE_INDEX_LOOKUP[i];
+            exchanged = mem::replace(&mut self.tree[t_idx], exchanged);
+        }
+        debug_assert!(self.tree.structure_check());
+        exchanged
+    }
+}
+
+impl<'a, T: 'a + Ord + Clone> KDistribute<T> {
     pub fn new(splitters: &[T]) -> Self {
         debug_assert!({
             let mut vec = splitters.to_owned();
@@ -244,21 +275,19 @@ impl<T: Ord + Clone> KDistribute<T> {
         assert!(splitters.len() >= _SPLITS);
 
         let mut tree: MaybeUninit<[T; _SPLITS]> = MaybeUninit::uninit();
-        flat_tree_index_order(_SPLITS)
-            .enumerate()
-            .for_each(|(i, j)| unsafe {
+        for i in 0.._SPLITS {
+            unsafe {
                 (tree.as_mut_ptr() as *mut T)
-                    .add(j)
-                    .write(splitters[i].clone())
-            });
+                    .add(TREE_INDEX_LOOKUP[i])
+                    .write(splitters[i].clone());
+            }
+        }
         let tree = unsafe { tree.assume_init() };
 
         debug_assert!(tree.structure_check());
         Self { tree }
     }
-}
 
-impl<'a, T: 'a + Ord + Clone> KDistribute<T> {
     pub fn into_iter(self) -> impl Iterator<Item = T> + 'a {
         flat_tree_index_order(_SPLITS).map(move |i| self.tree[i].clone())
     }
@@ -283,10 +312,11 @@ impl<T: Ord> Distribute<T> for KDistribute<T> {
 
     fn splitter_at(&self, idx: usize) -> &T {
         debug_assert!(idx < self.tree.len());
-        let tree_idx = self.tree.select_tree_index(idx);
-        self.tree.get(tree_idx)
+        let t_idx = TREE_INDEX_LOOKUP[idx];
+        self.tree.get(t_idx)
     }
 
+    // TODO is this even used?
     fn insert_splitter(&mut self, splitter: T) -> T {
         let result = self.tree.insert_splitter_at_idx(splitter, 0);
         debug_assert!(self.tree.structure_check());
@@ -295,7 +325,8 @@ impl<T: Ord> Distribute<T> for KDistribute<T> {
 
     fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
         debug_assert!(idx < self.tree.len());
-        self.tree.replace_splitter(splitter, idx)
+        let t_idx = TREE_INDEX_LOOKUP[idx];
+        mem::replace(self.tree.get_mut(t_idx), splitter)
     }
 
     fn structure_check(&self) -> bool {
@@ -649,5 +680,25 @@ mod test {
         buf.drain()
             .zip(vec![1, 3, 0].into_iter())
             .for_each(|(x, y)| assert_eq!(x, y));
+    }
+
+    #[test]
+    fn lookup_table() {
+        let splitters = &vec![0; _SPLITS];
+        let distr = KDistribute::<usize>::new(splitters);
+        for i in 0.._SPLITS {
+            assert_eq!(TREE_INDEX_LOOKUP[i], distr.tree.select_tree_index(i));
+        }
+    }
+
+    #[test]
+    fn insert_splitter_at_test() {
+        let splitters = &Vec::from_iter(0.._K - 1);
+        let mut distr = KDistribute::<usize>::new(splitters);
+
+        distr.insert_splitter_at(_K / 2, _K / 2, true);
+        distr.insert_splitter_at(_K / 2, _K / 2, false);
+        assert_eq!(*distr.splitter_at(0), 1);
+        assert_eq!(*distr.splitter_at(_SPLITS - 1), _SPLITS - 2);
     }
 }
