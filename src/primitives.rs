@@ -3,7 +3,14 @@ use crate::params::*;
 use arrayvec::ArrayVec;
 use mem::MaybeUninit;
 use smallvec::SmallVec;
-use std::{cmp::Ordering, convert::AsRef, fmt::Debug, iter::FromIterator, mem, ops::IndexMut};
+use std::{
+    cmp::Ordering,
+    convert::AsRef,
+    fmt::Debug,
+    iter::{self, FromIterator},
+    mem,
+    ops::IndexMut,
+};
 
 const _SPLITS: usize = _K - 1;
 
@@ -256,6 +263,11 @@ impl<'a, T: 'a + Ord + Clone> KDistribute<T> {
 
         debug_assert!(tree.structure_check());
         Self { tree }
+    }
+
+    pub fn with_default(default: T) -> Self {
+        let splitters = ArrayVec::<[T; _K]>::from_iter(iter::repeat(default).take(_K));
+        Self::new(&splitters)
     }
 
     pub fn into_iter(self) -> impl Iterator<Item = T> + 'a {
@@ -554,7 +566,7 @@ mod test {
 
         assert_eq!(_SPLITS, distr.insert_splitter_at(0, 0, false));
         assert_eq!(_SPLITS - 1, distr.insert_splitter_at(1, 1, false));
-        assert_eq!(_SPLITS - 2, distr.insert_splitter_at(2, 3 ,false));
+        assert_eq!(_SPLITS - 2, distr.insert_splitter_at(2, 3, false));
         assert_eq!(
             _SPLITS - 3,
             distr.replace_splitter(2 * _SPLITS + 3, _SPLITS - 1)

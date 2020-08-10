@@ -134,43 +134,6 @@ impl<T: Ord> BaseGroup<T> {
         Ok(self)
     }
 
-    // TODO: replace sequence (?)
-
-    /// Inserts a sequence before the sequence that is currently at the given index.
-    /// The next smaller splitter is specified.
-    /// If the number of sequences is full, the largest is removed and returned with the according splitter.
-    /// Insertion to first position is not possible (as the splitter would be invalid).
-    pub fn insert_sequence(
-        &mut self,
-        splitter: T,
-        seq: Sequence<T>,
-        idx: usize,
-    ) -> Option<(T, Sequence<T>)> {
-        debug_assert!(idx > (_K - self.sequences.len()) && idx <= _K);
-        debug_assert!(idx == _K || splitter <= *self.distr.splitter_at(idx - 1));
-
-        let result = if !self.sequences.is_full() {
-            let rev_idx = Self::rev_idx(idx - 1);
-            debug_assert!(rev_idx < self.sequences.len(), "idx={:?}", idx);
-            self.sequences.insert(rev_idx, seq);
-            self.distr.insert_splitter_at(splitter, idx - 2, true);
-            None
-        } else if idx == _K {
-            Some((splitter, seq))
-        } else {
-            let rev_idx = Self::rev_idx(idx);
-            let larger_range = &mut self.sequences[0..=rev_idx];
-            larger_range.rotate_left(1);
-            Some((
-                self.distr.insert_splitter_at(splitter, idx - 1, false),
-                mem::replace(&mut larger_range[rev_idx], seq),
-            ))
-        };
-
-        dbg_assertion!(self.base_structure_check());
-        result
-    }
-
     pub fn min_splitter(&self) -> &T {
         self.distr.splitter_at(0)
     }
@@ -262,9 +225,8 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
     }
 
     pub fn empty(max_seq_len: usize, default: T) -> Self {
-        let splitters = ArrayVec::<[T; _K]>::from_iter(iter::repeat(default).take(_K));
         Self {
-            distr: KDistribute::new(&splitters),
+            distr: KDistribute::with_default(default),
             sequences: ArrayVec::new(),
             max_seq_len,
         }
@@ -309,6 +271,47 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
         }
     }
 
+    /// Inserts a sequence before the sequence that is currently at the given index.
+    /// The next smaller splitter is specified.
+    /// If the number of sequences is full, the largest is removed and returned with the according splitter.
+    /// Insertion to first position is not possible (as the splitter would be invalid).
+    pub fn insert_sequence(
+        &mut self,
+        splitter: T,
+        seq: Sequence<T>,
+        idx: usize,
+    ) -> Option<(T, Sequence<T>)> {
+        debug_assert!(idx > (_K - self.sequences.len()) && idx <= _K);
+        debug_assert!(idx == _K || splitter <= *self.distr.splitter_at(idx - 1));
+
+        let result = if !self.sequences.is_full() {
+            let rev_idx = Self::rev_idx(idx - 1);
+            // really nasty edge case for invalid splitters
+            if rev_idx + 1 == self.sequences.len() {
+                for i in 0..(_K - 1 - rev_idx) {
+                    self.distr.replace_splitter(splitter.clone(), i);
+                }
+            } else {
+                self.distr.insert_splitter_at(splitter, idx - 2, true);
+            }
+            self.sequences.insert(rev_idx, seq);
+            None
+        } else if idx == _K {
+            Some((splitter, seq))
+        } else {
+            let rev_idx = Self::rev_idx(idx);
+            let larger_range = &mut self.sequences[0..=rev_idx];
+            larger_range.rotate_left(1);
+            Some((
+                self.distr.insert_splitter_at(splitter, idx - 1, false),
+                mem::replace(&mut larger_range[rev_idx], seq),
+            ))
+        };
+
+        dbg_assertion!(self.base_structure_check());
+        result
+    }
+
     pub fn scan_for_overflow(&self, start_idx: usize) -> Option<usize> {
         let n_empty = _K - self.num_sequences();
         let n_skip = usize::max(n_empty, start_idx) - n_empty;
@@ -322,8 +325,7 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
             .map(|(i, _)| _K - i - 1);
 
         debug_assert!(
-            result.map_or(true, |i| self.sequences[Self::rev_idx(i)]
-                .len()
+            result.map_or(true, |i| self.sequences[Self::rev_idx(i)].len()
                 > self.max_seq_len)
         );
         result
