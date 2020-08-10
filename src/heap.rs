@@ -130,7 +130,7 @@ impl<T: Ord + Clone> Groups<T> {
 
             Self::scan_and_split(&mut self.rng, base_group).map(|(mut splitters, sequences)| {
                 // can not fail because scan_and_split does not return an empty iterator
-                let splitter = splitters.next().unwrap();
+                let splitter = splitters.next_back().unwrap();
 
                 // edge case: last group was removed by pull_non_empty_sequence
                 if group_idx + 1 == self.group_list.len() {
@@ -142,8 +142,8 @@ impl<T: Ord + Clone> Groups<T> {
                 self.insert_sequences_to_group(
                     group_idx + 1,
                     splitter,
-                    splitters.rev(),
-                    sequences.rev(),
+                    splitters,
+                    sequences,
                 );
             });
         }
@@ -419,6 +419,7 @@ impl<T: Ord + Clone> Groups<T> {
         (replaced, base_group.scan_for_overflow(0))
     }
 
+    /// Returns removed sequences and splitters in decreasing order.
     fn scan_and_split(
         rng: &mut Rand,
         base_group: &mut BaseGroup<T>,
