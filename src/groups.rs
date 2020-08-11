@@ -166,9 +166,9 @@ impl<T: Ord> BaseGroup<T> {
     // #[cfg(any(debug, test))]
     /// - does not check sequence sizes
     pub fn base_structure_check(&self) -> bool {
-        let idx_delta = _K - self.sequences.len();
+        let idx_delta = usize::min(_K - self.sequences.len(), _K - 1);
 
-        let mut valid = self.distr.structure_check();
+        let mut valid = self.distr.structure_check(idx_delta);
         let mut prev_max = self.sequences.last().map(|s| s.max()).flatten();
         for (i, seq) in self.sequences.iter().rev().skip(1).enumerate() {
             let splitter = self.distr.splitter_at(i + idx_delta);
@@ -197,6 +197,7 @@ impl<T: Ord> BaseGroup<T> {
 
 impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
     pub fn new(max_seq_len: usize, splitters: &[T]) -> Self {
+        debug_assert!(splitters.len() == _K - 1);
         let sequences = ArrayVec::<[Sequence<T>; _K]>::from_iter(
             iter::repeat_with(|| Sequence::new()).take(_K),
         );
@@ -236,15 +237,12 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
 
     /// Adds a new smallest sequence and splitter if the groups number of sequences is not full.
     /// The specified splitter must be bigger then the sequence.
-    pub fn push_sequence(&mut self, splitter: T, seq: Sequence<T>, default: T) {
+    pub fn push_sequence(&mut self, splitter: T, seq: Sequence<T>) {
         debug_assert!(self.sequences.len() < _K);
         debug_assert!(
             self.sequences.len() <= 1
                 || splitter <= *self.distr.splitter_at(_K - self.sequences.len())
         );
-        for i in 0..usize::min(_K - self.sequences.len() - 1, _K - 1) {
-            self.distr.replace_splitter(default.clone(), i);
-        }
         if !self.sequences.is_empty() {
             self.distr
                 .replace_splitter(splitter, _K - self.sequences.len() - 1);
@@ -292,14 +290,7 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
 
         let result = if !self.sequences.is_full() {
             let rev_idx = Self::rev_idx(idx - 1);
-            // really nasty edge case for invalid splitters
-            if rev_idx + 1 == self.sequences.len() {
-                for i in 0..(_K - 1 - rev_idx) {
-                    self.distr.replace_splitter(splitter.clone(), i);
-                }
-            } else {
-                self.distr.insert_splitter_at(splitter, idx - 2, true);
-            }
+            self.distr.insert_splitter_at(splitter, idx - 2, true);
             self.sequences.insert(rev_idx, seq);
             None
         } else if idx == _K {
@@ -447,8 +438,8 @@ impl<T: Ord + Clone> BufferedGroup<T> {
     /// Adds a new smallest sequence and splitter if the groups number of sequences is not full.
     /// The specified splitter must be bigger then the sequence.
     /// To ensure consistency, smaller default splitter is used.
-    pub fn push_sequence(&mut self, splitter: T, seq: Sequence<T>, default: T) {
-        self.base.push_sequence(splitter, seq, default);
+    pub fn push_sequence(&mut self, splitter: T, seq: Sequence<T>) {
+        self.base.push_sequence(splitter, seq);
     }
 }
 
@@ -511,7 +502,7 @@ mod test {
         for i in (0.._K).rev() {
             let mut seq = Sequence::new();
             seq.push(2 * i);
-            group.push_sequence(2 * i + 2, seq, 0);
+            group.push_sequence(2 * i + 2, seq);
         }
         assert_eq!(*group.min().unwrap(), 0);
         assert_eq!(*group.max().unwrap(), 2 * _K - 2);
@@ -546,7 +537,7 @@ mod test {
         for i in (1..=3).rev() {
             let mut seq = Sequence::new();
             seq.push(2 * i);
-            group.push_sequence(2 * i + 2, seq, 0);
+            group.push_sequence(2 * i + 2, seq);
         }
 
         group.forced_insert_all(vec![1, 3, 5, 7].into_iter());
@@ -606,7 +597,7 @@ mod test {
         for i in (0.._K).rev() {
             let mut seq = Sequence::new();
             seq.push(2 * i);
-            group.clear_buffer_forced().push_sequence(2 * i + 2, seq, 0);
+            group.clear_buffer_forced().push_sequence(2 * i + 2, seq);
         }
 
         for i in 0..=_M {
