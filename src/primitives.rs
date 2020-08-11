@@ -137,11 +137,11 @@ fn flat_tree_index_order(len: usize) -> TreeIndexIter {
     TreeIndexIter {
         len,
         stack: if len > 0 {
-            let mut vec = ArrayVec::new();
+            let mut vec = Vec::new();
             vec.push((0, DFSLabel::from(element_type(0, len))));
             vec
         } else {
-            ArrayVec::new()
+            Vec::new()
         },
     }
 }
@@ -166,7 +166,7 @@ impl From<TreeElement> for DFSLabel {
 struct TreeIndexIter {
     len: usize,
     // suffices for KDistribute and for RDistribute, as R <= K for any reasonable input size
-    stack: ArrayVec<[(usize, DFSLabel); _SPLITS.count_ones() as usize]>,
+    stack: Vec<(usize, DFSLabel)>,
 }
 
 impl Iterator for TreeIndexIter {
