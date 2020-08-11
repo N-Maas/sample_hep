@@ -4,6 +4,7 @@ use arrayvec::ArrayVec;
 use mem::MaybeUninit;
 use smallvec::SmallVec;
 use std::{
+    borrow::Cow,
     cmp::Ordering,
     convert::AsRef,
     fmt::Debug,
@@ -250,7 +251,19 @@ impl<'a, T: 'a + Ord + Clone> KDistribute<T> {
             vec.sort();
             vec.as_slice() == splitters
         });
-        assert!(splitters.len() >= _SPLITS);
+        debug_assert!(!splitters.is_empty() && splitters.len() < _K);
+
+        let mut splitters = Cow::Borrowed(splitters);
+        if splitters.len() < _SPLITS {
+            let owned = splitters.to_mut();
+            owned.reserve_exact(_SPLITS - owned.len());
+            // can not fail as splitters is not empty
+            let filler = owned.first().unwrap().clone();
+            for _ in 0.._SPLITS - owned.len() {
+                owned.insert(0, filler.clone());
+            }
+        }
+        debug_assert!(splitters.len() == _SPLITS);
 
         let mut tree: MaybeUninit<[T; _SPLITS]> = MaybeUninit::uninit();
         for i in 0.._SPLITS {
@@ -264,11 +277,6 @@ impl<'a, T: 'a + Ord + Clone> KDistribute<T> {
 
         debug_assert!(tree.structure_check());
         Self { tree }
-    }
-
-    pub fn with_default(default: T) -> Self {
-        let splitters = ArrayVec::<[T; _K]>::from_iter(iter::repeat(default).take(_K));
-        Self::new(&splitters)
     }
 
     pub fn into_iter(self) -> impl Iterator<Item = T> + 'a {

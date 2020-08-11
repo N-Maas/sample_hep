@@ -215,18 +215,20 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
         default: T,
     ) -> Self {
         debug_assert!(splitters.len() < _K);
-        let mut filled = vec![default; _K - 1];
-        &mut filled[_K - 1 - splitters.len()..].clone_from_slice(splitters);
         Self {
-            distr: KDistribute::new(&filled),
-            sequences: ArrayVec::<[Sequence<T>; _K]>::from_iter(iter.rev()),
+            distr: if !splitters.is_empty() {
+                KDistribute::new(splitters)
+            } else {
+                KDistribute::new(&[default])
+            },
+            sequences: ArrayVec::from_iter(iter.rev()),
             max_seq_len,
         }
     }
 
     pub fn empty(max_seq_len: usize, default: T) -> Self {
         Self {
-            distr: KDistribute::with_default(default),
+            distr: KDistribute::new(&[default]),
             sequences: ArrayVec::new(),
             max_seq_len,
         }
@@ -244,7 +246,8 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
             self.distr.replace_splitter(default.clone(), i);
         }
         if !self.sequences.is_empty() {
-            self.distr.replace_splitter(splitter, _K - self.sequences.len() - 1);
+            self.distr
+                .replace_splitter(splitter, _K - self.sequences.len() - 1);
         }
         self.sequences.push(seq);
         dbg_assertion!(self.base_structure_check());
@@ -427,13 +430,8 @@ impl<T: Ord> BufferedGroup<T> {
 
 impl<T: Ord + Clone> BufferedGroup<T> {
     pub fn new(max_seq_len: usize, default: T) -> Self {
-        let splitters = ArrayVec::<[T; _K]>::from_iter(iter::repeat(default).take(_K));
         Self {
-            base: BaseGroup {
-                distr: KDistribute::new(&splitters),
-                sequences: ArrayVec::new(),
-                max_seq_len,
-            },
+            base: BaseGroup::empty(max_seq_len, default),
             buffer: GroupBuffer::new(),
         }
     }
