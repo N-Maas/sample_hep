@@ -225,13 +225,13 @@ impl<T: Ord + Clone> Groups<T> {
         debug_assert!(group_idx < self.group_list.len());
         debug_assert!(splitter <= *self.r_distr.splitter_at(group_idx));
 
-        let first_splitter = self.r_distr.replace_splitter(splitter, group_idx);
-        let iter = splitters.chain(iter::once(first_splitter)).zip(sequences);
+        let first_splitter = self.r_distr.replace_splitter(splitter.clone(), group_idx);
+        let iter = iter::once(first_splitter).chain(splitters).zip(sequences);
 
         // push new sequences to the group
         let group = &mut self.group_list[group_idx];
         let max_seq_len = group.max_seq_len();
-        for (splitter, mut seq) in iter {
+        for (split, mut seq) in iter {
             let num_seqs = group.num_sequences();
 
             // TODO: What is the right strategy for filling a group?
@@ -240,7 +240,7 @@ impl<T: Ord + Clone> Groups<T> {
             if num_seqs == _K || first_seq.len() + seq.len() <= max_seq_len {
                 first_seq.append(&mut seq);
             } else {
-                group.push_sequence(splitter, seq);
+                group.push_sequence(split, seq, splitter.clone());
             }
         }
 
@@ -506,7 +506,7 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_heaps_only() {
+    fn heaps_only() {
         let mut s_heap = SampleHeap::new();
 
         for i in 0..(2 * _M) {
@@ -521,7 +521,7 @@ mod test {
     }
 
     #[test]
-    fn test_deletion_heap_overflow() {
+    fn deletion_heap_overflow() {
         let mut s_heap = SampleHeap::new();
 
         for i in (0.._M).chain((0.._M).rev()).chain(0..=_M) {
@@ -531,7 +531,7 @@ mod test {
     }
 
     #[test]
-    fn test_group_overflow() {
+    fn group_overflow() {
         let mut s_heap = SampleHeap::new();
 
         for i in 0..(_K * _M) {
@@ -548,7 +548,7 @@ mod test {
     }
 
     #[test]
-    fn test_group_overflow_reverse() {
+    fn group_overflow_reverse() {
         let mut s_heap = SampleHeap::new();
 
         for i in (0..(_K * _M)).rev() {
@@ -565,7 +565,7 @@ mod test {
     }
 
     #[test]
-    fn test_refill_edge_case() {
+    fn refill_edge_case() {
         let mut s_heap = SampleHeap::new();
 
         for _ in (0..(4 * _M)).rev() {
@@ -575,5 +575,42 @@ mod test {
 
         while let Some(_) = s_heap.pop() {}
         assert!(s_heap.is_empty());
+    }
+
+    #[test]
+    fn insert_sequences() {
+        let mut s_heap = SampleHeap::new();
+
+        for _ in 0..=(2 * _M) {
+            s_heap.push(2);
+        }
+
+        let mut s0 = Sequence::new();
+        for _ in 0.._M {
+            s0.push(0);
+        }
+        let mut s1 = Sequence::new();
+        for _ in 0.._M {
+            s1.push(1);
+        }
+        let mut seqs = vec![s1, s0];
+
+        loop {
+            s_heap.pop();
+            if s_heap.groups.deletion_heap.is_empty() {
+                let group = s_heap.groups.clear_and_handle_overflow(0);
+                while group.num_sequences() > 1 {
+                    group.pop_sequence();
+                }
+                s_heap.groups.insert_sequences_to_group(
+                    0,
+                    0,
+                    iter::once(1),
+                    seqs.drain(0..seqs.len()),
+                );
+                break;
+            }
+        }
+        assert!(s_heap.groups.structure_check());
     }
 }

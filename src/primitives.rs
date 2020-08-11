@@ -219,6 +219,7 @@ impl<T: Ord> TreeBuffer<T, [T]> for [T; _SPLITS] {
     }
 }
 
+// TODO: many identical elements currently lead to bad performance
 pub(crate) struct KDistribute<T: Ord> {
     tree: [T; _SPLITS],
 }
