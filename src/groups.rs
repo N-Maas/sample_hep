@@ -108,6 +108,10 @@ impl<T: Ord> BaseGroup<T> {
 
     /// does not test size limit of the sequences
     pub fn forced_insert_all(&mut self, iter: impl Iterator<Item = T>) {
+        if self.sequences.is_empty() {
+            self.sequences.push(Sequence::new());
+        }
+
         for el in iter {
             let idx = self.distribute(&el);
             unsafe { Self::sequence_at_unchecked(&mut self.sequences, idx).push(el) }
@@ -118,6 +122,10 @@ impl<T: Ord> BaseGroup<T> {
         &mut self,
         mut iter: &mut impl Iterator<Item = T>,
     ) -> Result<&mut Self, GroupOverflowError<T, iter::Once<T>>> {
+        if self.sequences.is_empty() {
+            self.sequences.push(Sequence::new());
+        }
+
         for el in &mut iter {
             let idx = self.distribute(&el);
             let sequence = unsafe { Self::sequence_at_unchecked(&mut self.sequences, idx) };
@@ -159,6 +167,7 @@ impl<T: Ord> BaseGroup<T> {
     }
 
     fn rev_idx(idx: usize) -> usize {
+        debug_assert!(idx < _K);
         _K - idx - 1
     }
 
