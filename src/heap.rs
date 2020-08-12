@@ -143,7 +143,7 @@ impl<T: Ord + Clone> Groups<T> {
             });
         }
 
-        dbg_assertion!(self.structure_check());
+        dbg_assertion!(self.group_list[group_idx].structure_check());
     }
 
     /// Tries to retrieve a sequence from the group with the given index,
@@ -249,7 +249,7 @@ impl<T: Ord + Clone> Groups<T> {
             self.handle_group_overflow(group_idx, 0);
         }
 
-        dbg_assertion!((&mut self.group_list[group_idx]).structure_check());
+        dbg_assertion!(self.group_list[group_idx].structure_check());
     }
 
     // TODO: use quickselect or a sampled element instead of sorting?
@@ -343,7 +343,7 @@ impl<T: Ord + Clone> Groups<T> {
         // it is very, really, extremely unlikely that an overflow happens here
         overflow.map(|seq_idx| self.handle_group_overflow(group_idx, seq_idx));
 
-        dbg_assertion!(self.structure_check());
+        dbg_assertion!(self.group_list[group_idx].structure_check());
     }
 
     /// Splits the sequence at the given index in two, returning the bigggest sequence
