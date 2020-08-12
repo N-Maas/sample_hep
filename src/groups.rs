@@ -407,7 +407,7 @@ impl<T: Ord> BufferedGroup<T> {
     }
 
     pub fn first_or_insert(&mut self) -> &mut Sequence<T> {
-        if self.base.is_empty() {
+        if self.base.sequences.is_empty() {
             self.base.sequences.push(Sequence::new());
         }
         self.base.sequences.last_mut().unwrap()
