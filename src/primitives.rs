@@ -4,7 +4,13 @@ use arrayvec::ArrayVec;
 use mem::MaybeUninit;
 use smallvec::SmallVec;
 use std::{
-    borrow::Cow, cmp::Ordering, convert::AsRef, fmt::Debug, iter::FromIterator, mem, ops::IndexMut,
+    borrow::Cow,
+    cmp::Ordering,
+    convert::AsRef,
+    fmt::Debug,
+    iter::FromIterator,
+    mem,
+    ops::IndexMut,
 };
 
 const _SPLITS: usize = _K - 1;
@@ -29,6 +35,8 @@ pub(crate) trait Distribute<T: Ord> {
     fn splitter_at(&self, idx: usize) -> &T;
 
     fn replace_splitter(&mut self, splitter: T, idx: usize) -> T;
+
+    fn structure_check(&self) -> bool;
 }
 
 enum TreeElement {
@@ -231,22 +239,8 @@ impl<T: Ord> KDistribute<T> {
             let t_idx = TREE_INDEX_LOOKUP[i];
             exchanged = mem::replace(&mut self.tree[t_idx], exchanged);
         }
+        debug_assert!(self.tree.structure_check());
         exchanged
-    }
-
-    /// debugging
-    pub fn structure_check(&self, min_used_idx: usize) -> bool {
-        for i in 0..min_used_idx {
-            if self.tree[TREE_INDEX_LOOKUP[i]] != self.tree[TREE_INDEX_LOOKUP[0]] {
-                return false;
-            }
-        }
-        for i in min_used_idx..(_SPLITS - 1) {
-            if self.tree[TREE_INDEX_LOOKUP[i]] > self.tree[TREE_INDEX_LOOKUP[i + 1]] {
-                return false;
-            }
-        }
-        return true;
     }
 }
 
@@ -318,6 +312,10 @@ impl<T: Ord> Distribute<T> for KDistribute<T> {
         let t_idx = TREE_INDEX_LOOKUP[idx];
         mem::replace(self.tree.get_mut(t_idx), splitter)
     }
+
+    fn structure_check(&self) -> bool {
+        self.tree.structure_check()
+    }
 }
 
 impl<T: Debug + Ord> Debug for KDistribute<T> {
@@ -350,10 +348,6 @@ impl<T: Ord> RDistribute<T> {
         Self {
             tree: SmallVec::new(),
         }
-    }
-
-    pub fn structure_check(&self) -> bool {
-        self.tree.structure_check()
     }
 }
 
@@ -394,6 +388,10 @@ impl<T: Ord> Distribute<T> for RDistribute<T> {
     fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
         debug_assert!(idx < self.tree.len());
         self.tree.replace_splitter(splitter, idx)
+    }
+
+    fn structure_check(&self) -> bool {
+        self.tree.structure_check()
     }
 }
 
@@ -582,7 +580,7 @@ mod test {
             _SPLITS - 3,
             distr.replace_splitter(2 * _SPLITS + 3, _SPLITS - 1)
         );
-        assert!(distr.structure_check(0));
+        assert!(distr.structure_check());
         assert_eq!(2 * _SPLITS + 3, distr.insert_splitter_at(0, 0, false));
     }
 

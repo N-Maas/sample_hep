@@ -225,13 +225,13 @@ impl<T: Ord + Clone> Groups<T> {
         debug_assert!(group_idx < self.group_list.len());
         debug_assert!(splitter <= *self.r_distr.splitter_at(group_idx));
 
-        let first_splitter = self.r_distr.replace_splitter(splitter, group_idx);
+        let first_splitter = self.r_distr.replace_splitter(splitter.clone(), group_idx);
         let iter = iter::once(first_splitter).chain(splitters).zip(sequences);
 
         // push new sequences to the group
         let group = &mut self.group_list[group_idx];
         let max_seq_len = group.max_seq_len();
-        for (splitter, mut seq) in iter {
+        for (split, mut seq) in iter {
             let num_seqs = group.num_sequences();
 
             // TODO: What is the right strategy for filling a group?
@@ -240,7 +240,7 @@ impl<T: Ord + Clone> Groups<T> {
             if num_seqs == _K || first_seq.len() + seq.len() <= max_seq_len {
                 first_seq.append(&mut seq);
             } else {
-                group.push_sequence(splitter, seq);
+                group.push_sequence(split, seq, splitter.clone());
             }
         }
 
