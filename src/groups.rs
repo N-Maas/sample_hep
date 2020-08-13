@@ -507,6 +507,13 @@ mod test {
     }
 
     #[test]
+    fn base_group_empty() {
+        let mut group = BaseGroup::empty(4, 0);
+        group.forced_insert_all(iter::once(0));
+        assert!(group.structure_check());
+    }
+
+    #[test]
     fn base_group_seqs() {
         let splitters = [2 * _K; _K - 1];
         let mut group = BaseGroup {
@@ -616,7 +623,7 @@ mod test {
         for i in (0.._K).rev() {
             let mut seq = Sequence::new();
             seq.push(2 * i);
-            group.clear_buffer_forced().push_sequence(2 * i + 2, seq, 0);
+            group.base.push_sequence(2 * i + 2, seq, 0);
         }
 
         for i in 0..=_M {
