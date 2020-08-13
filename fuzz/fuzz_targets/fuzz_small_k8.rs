@@ -4,7 +4,7 @@ use std::cmp::Reverse;
 use libfuzzer_sys::fuzz_target;
 use sample_heap::SampleHeap;
 
-// k = 4, m = 8
+// k = 8, m = 8
 
 fuzz_target!(|elements: Vec<Option<u8>>| {
     let mut heap = SampleHeap::new();

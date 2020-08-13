@@ -30,3 +30,9 @@ name = "fuzz_small"
 path = "fuzz_targets/fuzz_small.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_small_k8"
+path = "fuzz_targets/fuzz_small_k8.rs"
+test = false
+doc = false

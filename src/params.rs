@@ -2,7 +2,7 @@
 #[cfg(test)]
 pub const _K: usize = 8;
 #[cfg(not(test))]
-pub const _K: usize = 4;
+pub const _K: usize = 8;
 #[cfg(test)]
 pub const _M: usize = 16;
 #[cfg(not(test))]
