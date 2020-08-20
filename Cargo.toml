@@ -7,15 +7,15 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-static_assertions = "1.1.0"
+static_assertions = "1.1"
 # possibly smallvec can be exchanged with a usual Vec
-smallvec = "1.4.1"
+smallvec = "1.4"
 rand = "0.7"
-rand_pcg = "0.2.1"
-lazy_static = "1.4.0"
+rand_pcg = "0.2"
+lazy_static = "1.4"
 
 [dependencies.arrayvec]
-version = "0.5.1"
+version = "0.5"
 features = ["array-sizes-33-128", "array-sizes-129-255"]
 
 

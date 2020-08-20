@@ -4,13 +4,7 @@ use arrayvec::ArrayVec;
 use mem::MaybeUninit;
 use smallvec::SmallVec;
 use std::{
-    borrow::Cow,
-    cmp::Ordering,
-    convert::AsRef,
-    fmt::Debug,
-    iter::FromIterator,
-    mem,
-    ops::IndexMut,
+    borrow::Cow, cmp::Ordering, convert::AsRef, fmt::Debug, iter::FromIterator, mem, ops::IndexMut,
 };
 
 const _SPLITS: usize = _K - 1;
