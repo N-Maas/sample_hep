@@ -17,3 +17,11 @@ lazy_static = "1.4.0"
 [dependencies.arrayvec]
 version = "0.5.1"
 features = ["array-sizes-33-128", "array-sizes-129-255"]
+
+
+[dev-dependencies]
+criterion = "0.3"
+
+[[bench]]
+name = "sorting_benchmark"
+harness = false
