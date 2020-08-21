@@ -7,7 +7,7 @@ pub const _K: usize = 128;
 #[cfg(test)]
 pub const _M: usize = 16;
 #[cfg(not(test))]
-pub const _M: usize = 256;
+pub const _M: usize = 2048;
 
 pub const _SCALING: usize = _K / 2;
 pub const _SAMPLING: usize = 3;
