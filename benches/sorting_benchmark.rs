@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 
-use criterion::{criterion_group, criterion_main, Benchmark, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg32;
 use sample_heap::SampleHeap;
@@ -101,39 +101,47 @@ fn base_benchmark(c: &mut Criterion) {
 
 // larger benchmark with (relatively) unique values
 
-lazy_static! {
-    static ref MEDIUM_INPUT: Vec<u32> = random_sequence(100_000_000, u32::MAX, [2; 16]);
-    static ref MEDIUM_SORTED: Vec<u32> = {
-        let mut data = MEDIUM_INPUT.clone();
-        data.sort();
-        data
-    };
+fn extended_medium_benchmark(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Heap sort: medium size benchmarks");
+    group.sample_size(20);
+
+    for size in &[500_000, 1_000_000, 1_500_000, 2_000_000] {
+        group.throughput(Throughput::Bytes(4 * *size as u64));
+        for seed in 0..4 {
+            let input = random_sequence(*size, u32::MAX, [seed; 16]);
+            let mut sorted = input.clone();
+            sorted.sort();
+            group.bench_with_input(
+                format!("size={}, seed={}", size, seed),
+                &(&input, &sorted),
+                |b, &(input, sorted)| b.iter(|| assert_vecs_eq(&heap_sort(input), sorted)),
+            );
+        }
+    }
 }
 
-fn medium_benchmark(c: &mut Criterion) {
-    c.bench(
-        "heap sort LARGE",
-        Benchmark::new("new", |b| {
-            b.iter(|| assert_vecs_eq(&heap_sort(&MEDIUM_INPUT), &MEDIUM_SORTED))
-        })
-        .sample_size(10),
-    );
-    c.bench(
-        "bheap sort LARGE",
-        Benchmark::new("new", |b| {
-            b.iter(|| assert_vecs_eq(&bheap_sort(&MEDIUM_INPUT), &MEDIUM_SORTED))
-        })
-        .sample_size(10),
-    );
-    c.bench(
-        "quicksort LARGE",
-        Benchmark::new("new", |b| {
-            b.iter(|| assert_vecs_eq(&q_sort(&MEDIUM_INPUT), &MEDIUM_SORTED))
-        })
-        .sample_size(10),
-    );
+// larger benchmark with (relatively) unique values
+
+fn extended_medium_benchmark_bheap(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Heap sort: medium size benchmarks");
+    group.sample_size(20);
+
+    for size in &[500_000, 1_000_000, 1_500_000, 2_000_000] {
+        group.throughput(Throughput::Bytes(4 * *size as u64));
+        for seed in 0..4 {
+            let input = random_sequence(*size, u32::MAX, [seed; 16]);
+            let mut sorted = input.clone();
+            sorted.sort();
+            group.bench_with_input(
+                format!("size={}, seed={}", size, seed),
+                &(&input, &sorted),
+                |b, &(input, sorted)| b.iter(|| assert_vecs_eq(&bheap_sort(input), sorted)),
+            );
+        }
+    }
 }
 
 criterion_group!(small, small_benchmark, base_benchmark);
-criterion_group!(medium, medium_benchmark);
-criterion_main!(small);
+criterion_group!(medium, extended_medium_benchmark);
+criterion_group!(medium_bheap, extended_medium_benchmark_bheap);
+criterion_main!(medium);
