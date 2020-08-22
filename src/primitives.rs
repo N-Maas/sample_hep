@@ -441,6 +441,12 @@ impl<T: Ord> Sequence<T> {
         Default::default()
     }
 
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            data: Vec::with_capacity(capacity),
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.data.len()
     }

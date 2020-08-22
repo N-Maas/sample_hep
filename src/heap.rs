@@ -9,6 +9,7 @@ type Rand = Pcg32;
 
 // TODO replace Iterator with IntoIter in arguments
 
+// ----- Implementation using an insertion heap as buffer -----
 // TODO: implement Clone?
 // TODO: try to reduce size a bit?
 #[derive(Debug)]
@@ -82,6 +83,66 @@ impl<T: Ord + Clone> SampleHeap<T> {
                 self.insertion_heap.push(remaining).ok().unwrap();
             });
         self.len += 1;
+    }
+
+// ----- Implementation without buffer -----
+#[derive(Debug)]
+pub struct FlatHeap<T: Ord + Clone> {
+    len: usize,
+    groups: Groups<T>,
+}
+
+impl<T: Ord + Clone> FlatHeap<T> {
+    pub fn new() -> Self {
+        Self {
+            len: 0,
+            groups: Groups {
+                rng: Rand::from_seed([0; 16]),
+                r_distr: RDistribute::new(),
+                deletion_heap: BufferHeap::new(),
+                group_list: SmallVec::new(),
+            },
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        let result = self.len == 0;
+        // TODO: remove this when sufficiently tested
+        debug_assert!(
+            self.groups.deletion_heap.is_empty()
+            && self.groups.group_list.iter().all(|g| g.is_empty()) == result
+        );
+        result
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+        if self.groups.deletion_heap.is_empty() {
+            self.groups.refill_deletion_heap();
+        }
+
+        let result = self.groups.deletion_heap.pop();
+        if result.is_some() {
+            self.len -= 1;
+        }
+        result
+    }
+
+    pub fn push(&mut self, el: T) {
+        self.groups.insert_all(iter::once(el));
+        self.len += 1;
+    }
+
+    pub fn print_structure(&self) {
+        println!("--- STRUCTURE (Flat group) ---");
+        println!("number of groups: {}", self.groups.group_list.len());
+        // println!("deletion heap length: {}", self.groups.deletion_heap.len());
+        // for group in &self.groups.group_list {
+        //     group.print_structure();
+        // }
     }
 }
 

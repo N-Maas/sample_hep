@@ -4,7 +4,7 @@ extern crate lazy_static;
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg32;
-use sample_heap::SampleHeap;
+use sample_heap::{heap::FlatHeap, SampleHeap};
 use std::{cmp::Reverse, collections::BinaryHeap, fmt::Debug};
 
 fn random_sequence(len: usize, range: u32, seed: [u8; 16]) -> Vec<u32> {
@@ -17,14 +17,20 @@ fn random_sequence(len: usize, range: u32, seed: [u8; 16]) -> Vec<u32> {
 }
 
 fn heap_sort(input: &Vec<u32>) -> Vec<u32> {
-    let mut heap = SampleHeap::new();
+    let mut heap = FlatHeap::new();
     let mut result = Vec::with_capacity(input.len());
+
+    // let start = Instant::now();
     for val in input {
         heap.push(*val);
     }
+    // println!("filling time: {}", start.elapsed().as_micros());
+    // heap.print_structure();
+    // let mid = Instant::now();
     while let Some(el) = heap.pop() {
         result.push(el);
     }
+    // println!("pulling time: {}", mid.elapsed().as_micros());
     result
 }
 
