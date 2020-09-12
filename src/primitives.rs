@@ -23,16 +23,6 @@ lazy_static! {
 
 // ----- splitter primitives ----- //
 
-pub(crate) trait Distribute<T: Ord> {
-    fn distribute(&self, el: &T) -> usize;
-
-    fn splitter_at(&self, idx: usize) -> &T;
-
-    fn replace_splitter(&mut self, splitter: T, idx: usize) -> T;
-
-    fn structure_check(&self) -> bool;
-}
-
 enum TreeElement {
     Node(usize, usize),
     UnaryNode(usize),
@@ -220,6 +210,34 @@ pub(crate) struct KDistribute<T: Ord> {
 }
 
 impl<T: Ord> KDistribute<T> {
+    // Unfortunately, the compiler can not eliminate the branch in the more general version
+    // of the r-distribute. Thus a little code duplication is unavoidable.
+    pub fn distribute(&self, el: &T) -> usize {
+        let len = self.tree.len();
+
+        let mut idx = 0;
+        for _ in 0..(len.count_ones()) {
+            // compiler seems unable to completely remove bound checks
+            idx = unsafe { self.tree.next_idx_unchecked(el, idx) };
+        }
+
+        let result = idx - len;
+        debug_assert!(result <= len, "Invalid result: {:?}", result);
+        result
+    }
+
+    pub fn splitter_at(&self, idx: usize) -> &T {
+        debug_assert!(idx < self.tree.len());
+        let t_idx = TREE_INDEX_LOOKUP[idx];
+        self.tree.get(t_idx)
+    }
+
+    pub fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
+        debug_assert!(idx < self.tree.len());
+        let t_idx = TREE_INDEX_LOOKUP[idx];
+        mem::replace(self.tree.get_mut(t_idx), splitter)
+    }
+
     /// Replaces the splitter at the specified index, shifting either the smaller
     /// or bigger half of the remaining splitters and returning the removed splitter.
     pub fn insert_splitter_at(&mut self, splitter: T, idx: usize, leftwards: bool) -> T {
@@ -235,6 +253,11 @@ impl<T: Ord> KDistribute<T> {
         }
         debug_assert!(self.tree.structure_check());
         exchanged
+    }
+
+    /// debugging
+    pub fn structure_check(&self) -> bool {
+        self.tree.structure_check()
     }
 }
 
@@ -278,40 +301,6 @@ impl<'a, T: 'a + Ord + Clone> KDistribute<T> {
     }
 }
 
-impl<T: Ord> Distribute<T> for KDistribute<T> {
-    // Unfortunately, the compiler can not eliminate the branch in the more general version
-    // of the r-distribute. Thus a little code duplication is unavoidable.
-    fn distribute(&self, el: &T) -> usize {
-        let len = self.tree.len();
-
-        let mut idx = 0;
-        for _ in 0..(len.count_ones()) {
-            // compiler seems unable to completely remove bound checks
-            idx = unsafe { self.tree.next_idx_unchecked(el, idx) };
-        }
-
-        let result = idx - len;
-        debug_assert!(result <= len, "Invalid result: {:?}", result);
-        result
-    }
-
-    fn splitter_at(&self, idx: usize) -> &T {
-        debug_assert!(idx < self.tree.len());
-        let t_idx = TREE_INDEX_LOOKUP[idx];
-        self.tree.get(t_idx)
-    }
-
-    fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
-        debug_assert!(idx < self.tree.len());
-        let t_idx = TREE_INDEX_LOOKUP[idx];
-        mem::replace(self.tree.get_mut(t_idx), splitter)
-    }
-
-    fn structure_check(&self) -> bool {
-        self.tree.structure_check()
-    }
-}
-
 impl<T: Debug + Ord> Debug for KDistribute<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         (&self.tree as &[T]).fmt(f)
@@ -343,10 +332,8 @@ impl<T: Ord> RDistribute<T> {
             tree: SmallVec::new(),
         }
     }
-}
 
-impl<T: Ord> Distribute<T> for RDistribute<T> {
-    fn distribute(&self, el: &T) -> usize {
+    pub fn distribute(&self, el: &T) -> usize {
         let len = self.tree.len();
         let high = (len + 1).next_power_of_two() - 1;
 
@@ -373,18 +360,19 @@ impl<T: Ord> Distribute<T> for RDistribute<T> {
         result
     }
 
-    fn splitter_at(&self, idx: usize) -> &T {
+    pub fn splitter_at(&self, idx: usize) -> &T {
         debug_assert!(idx < self.tree.len());
         let tree_idx = self.tree.select_tree_index(idx);
         self.tree.get(tree_idx)
     }
 
-    fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
+    pub fn replace_splitter(&mut self, splitter: T, idx: usize) -> T {
         debug_assert!(idx < self.tree.len());
         self.tree.replace_splitter(splitter, idx)
     }
 
-    fn structure_check(&self) -> bool {
+    /// debugging
+    pub fn structure_check(&self) -> bool {
         self.tree.structure_check()
     }
 }

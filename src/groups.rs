@@ -619,6 +619,8 @@ mod test {
 
     #[test]
     fn buffered_group() {
+        use std::iter::FromIterator;
+
         let mut group = BufferedGroup::new(1, 0);
         assert!(group.structure_check());
 

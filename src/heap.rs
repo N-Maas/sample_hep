@@ -85,6 +85,8 @@ impl<T: Ord + Clone> SampleHeap<T> {
         self.len += 1;
     }
 
+}
+
 // ----- Implementation without buffer -----
 #[derive(Debug)]
 pub struct FlatHeap<T: Ord + Clone> {
@@ -110,7 +112,7 @@ impl<T: Ord + Clone> FlatHeap<T> {
         // TODO: remove this when sufficiently tested
         debug_assert!(
             self.groups.deletion_heap.is_empty()
-            && self.groups.group_list.iter().all(|g| g.is_empty()) == result
+                && self.groups.group_list.iter().all(|g| g.is_empty()) == result
         );
         result
     }
