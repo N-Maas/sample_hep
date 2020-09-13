@@ -91,7 +91,7 @@ pub(crate) struct BaseGroup<T: Ord> {
 
 impl<T: Ord> BaseGroup<T> {
     pub fn is_empty(&self) -> bool {
-        self.sequences.iter().all(|seq| seq.len() == 0)
+        self.sequences[_K - self.num_sequences.._K].iter().all(|seq| seq.len() == 0)
     }
 
     pub fn num_sequences(&self) -> usize {
@@ -274,30 +274,32 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
     }
 
     /// Returns a bigger splitter, if available.
-    pub fn pop_sequence(&mut self) -> (Option<T>, Option<Sequence<T>>) {
+    pub fn pop_sequence(&mut self) -> (Option<T>, Option<&mut Sequence<T>>) {
         if self.num_sequences > 0 {
             self.num_sequences -= 1;
-            let seq = mem::replace(
-                &mut self.sequences[_K - self.num_sequences - 1],
-                Sequence::new(),
-            );
-            let smaller_splitter = self.distr.splitter_at(0).clone();
+            let seq = &mut self.sequences[_K - self.num_sequences - 1];
 
             // necessary to ensure a valid structure of the splitters:
             // minimal elements are distributed to either index 0 or the minimal sequence
             // 0 is correctly adjusted by the rev_idx function
             if self.num_sequences > 0 {
+                let smaller_splitter = self.distr.splitter_at(0).clone();
                 let splitter = self
                     .distr
-                    .replace_splitter(smaller_splitter.clone(), _K - self.num_sequences - 1);
-
-                dbg_assertion!(self.base_structure_check());
+                    .replace_splitter(smaller_splitter, _K - self.num_sequences - 1);
                 (Some(splitter), Some(seq))
             } else {
                 (None, Some(seq))
             }
         } else {
             (None, None)
+        }
+    }
+
+    /// Pop all empty sequences.
+    pub fn pop_empty(&mut self) {
+        while self.num_sequences > 0 && (self.sequences[_K - self.num_sequences].len() == 0) {
+            self.pop_sequence();
         }
     }
 

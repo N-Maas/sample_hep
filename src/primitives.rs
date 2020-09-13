@@ -452,8 +452,8 @@ impl<T: Ord> Sequence<T> {
         self.data.drain(0..)
     }
 
-    pub fn into_vec(self) -> Vec<T> {
-        self.data
+    pub fn as_vec(&mut self) -> &mut Vec<T> {
+        &mut self.data
     }
 
     // #[cfg(any(debug, test))]
