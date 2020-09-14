@@ -494,8 +494,12 @@ pub(crate) enum GroupInit<'a, T: Ord> {
 
 impl<'a, T: Ord> GroupBuilder<'a, T> {
     // requires unstable feature, but avoids unecessary copying
-    pub fn new() -> GroupBuilder<'static, T> {
-        GroupBuilder::<'static, T>::Uninit(Box::new_uninit())
+    pub fn new() -> GroupBuilder<'a, T>
+    where
+        T: 'a,
+    {
+        // we need to zero the memory, because uninitialized padding seems to be UB (at least, segfaults appear without zeroing)
+        GroupBuilder::<'a, T>::Uninit(Box::new_zeroed())
     }
 
     pub fn borrowed(group: &'a mut BufferedGroup<T>) -> Self {
@@ -592,15 +596,26 @@ impl<'a, T: Ord + Clone> GroupBuilder<'a, T> {
 mod test {
     use super::*;
 
+    fn empty_group<T: Ord + Clone + 'static>(max_seq_len: usize, default: T) -> BaseGroup<T> {
+        match GroupBuilder::new().init_empty(max_seq_len, default) {
+            GroupInit::Borrowed(_) => panic!(),
+            GroupInit::Init(group) => group.base,
+        }
+    }
+
     #[test]
     fn base_group_basic() {
         let mut s1 = Sequence::new();
         s1.push(1);
         let mut s2 = Sequence::new();
         s2.push(4);
-        let splitters = [2; _K - 1];
+        let splitters = [2; 1];
 
-        let mut group = BaseGroup::from_iter(2, &splitters, vec![s1, s2].into_iter(), 0);
+        let mut group =
+            match GroupBuilder::new().init_from_iter(2, &splitters, vec![s1, s2].into_iter(), 0) {
+                GroupInit::Borrowed(_) => panic!(),
+                GroupInit::Init(group) => group.base,
+            };
         assert!(!group.is_empty());
         assert!(group.structure_check());
 
@@ -630,14 +645,14 @@ mod test {
 
     #[test]
     fn base_group_empty() {
-        let mut group = BaseGroup::empty(4, 0);
+        let mut group = empty_group(4, 0);
         group.forced_insert_all(iter::once(0));
         assert!(group.structure_check());
     }
 
     #[test]
     fn base_group_seqs() {
-        let mut group = BaseGroup::empty(1, 2 * _K);
+        let mut group = empty_group(1, 2 * _K);
         assert!(group.structure_check());
         assert_eq!(None, group.min());
         assert_eq!(None, group.max());
@@ -669,7 +684,7 @@ mod test {
 
     #[test]
     fn base_group_insert_elements() {
-        let mut group = BaseGroup::empty(3, 0);
+        let mut group = empty_group(3, 0);
         assert!(group.structure_check());
 
         for i in (1..=3).rev() {
@@ -710,7 +725,11 @@ mod test {
         seq3.push(4);
 
         let splitters = [];
-        let mut group = BaseGroup::from_iter(2, &splitters, vec![seq1].into_iter(), 0);
+        let mut group =
+            match GroupBuilder::new().init_from_iter(2, &splitters, vec![seq1].into_iter(), 0) {
+                GroupInit::Borrowed(_) => panic!(),
+                GroupInit::Init(group) => group.base,
+            };
         assert!(group.structure_check());
 
         assert!(group.insert_sequence(4, seq3, _K).is_none());
@@ -731,7 +750,10 @@ mod test {
     fn buffered_group() {
         use std::iter::FromIterator;
 
-        let mut group = BufferedGroup::new(1, 0);
+        let mut group = match GroupBuilder::new().init_empty(1, 0) {
+            GroupInit::Borrowed(_) => panic!(),
+            GroupInit::Init(group) => *group,
+        };
         assert!(group.structure_check());
 
         for i in (0.._K).rev() {
