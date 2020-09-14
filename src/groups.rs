@@ -91,7 +91,9 @@ pub(crate) struct BaseGroup<T: Ord> {
 
 impl<T: Ord> BaseGroup<T> {
     pub fn is_empty(&self) -> bool {
-        self.sequences[_K - self.num_sequences.._K].iter().all(|seq| seq.len() == 0)
+        self.sequences[_K - self.num_sequences.._K]
+            .iter()
+            .all(|seq| seq.len() == 0)
     }
 
     pub fn num_sequences(&self) -> usize {
@@ -477,6 +479,112 @@ impl<T: Ord + Clone> BufferedGroup<T> {
     /// To ensure consistency, a smaller default splitter is used.
     pub fn push_sequence(&mut self, splitter: T, seq: Sequence<T>, default: T) {
         self.base.push_sequence(splitter, seq, default);
+    }
+}
+
+// structs that provide an API for efficiently initializing groups without unnecessary copies
+pub(crate) enum GroupBuilder<'a, T: Ord> {
+    Borrowed(&'a mut BufferedGroup<T>),
+    Uninit(Box<MaybeUninit<BufferedGroup<T>>>),
+}
+pub(crate) enum GroupInit<'a, T: Ord> {
+    Borrowed(&'a mut BufferedGroup<T>),
+    Init(Box<BufferedGroup<T>>),
+}
+
+impl<'a, T: Ord> GroupBuilder<'a, T> {
+    // requires unstable feature, but avoids unecessary copying
+    pub fn new() -> GroupBuilder<'static, T> {
+        GroupBuilder::<'static, T>::Uninit(Box::new_uninit())
+    }
+
+    pub fn borrowed(group: &'a mut BufferedGroup<T>) -> Self {
+        debug_assert!(group.is_empty());
+        Self::Borrowed(group)
+    }
+}
+
+impl<'a, T: Ord + Clone> GroupBuilder<'a, T> {
+    pub fn init_empty(self, max_seq_len: usize, default: T) -> GroupInit<'a, T> {
+        self.init(&[default], 0, max_seq_len, iter::empty())
+    }
+
+    pub fn init_from_splitters(self, max_seq_len: usize, splitters: &[T]) -> GroupInit<'a, T> {
+        self.init(splitters, splitters.len() + 1, max_seq_len, iter::empty())
+    }
+
+    pub fn init_from_iter(
+        self,
+        max_seq_len: usize,
+        splitters: &[T],
+        iter: impl DoubleEndedIterator<Item = Sequence<T>>,
+        default: T,
+    ) -> GroupInit<'a, T> {
+        let num_sequences = splitters.len() + 1;
+        let default = &[default];
+        let splitters = if !splitters.is_empty() {
+            splitters
+        } else {
+            default
+        };
+        self.init(splitters, num_sequences, max_seq_len, iter)
+    }
+
+    pub fn init(
+        self,
+        splitters: &[T],
+        num_sequences: usize,
+        max_seq_len: usize,
+        iter: impl DoubleEndedIterator<Item = Sequence<T>>,
+    ) -> GroupInit<'a, T> {
+        match self {
+            GroupBuilder::Borrowed(group) => {
+                let bg = group.base_group();
+                bg.distr = KDistribute::new(splitters);
+                bg.num_sequences = num_sequences;
+                bg.max_seq_len = max_seq_len;
+                for (i, el) in iter.rev().enumerate() {
+                    bg.sequences[_K - i - 1] = el;
+                }
+                GroupInit::Borrowed(group)
+            }
+            GroupBuilder::Uninit(mut group) => {
+                Self::init_unsafe(group.as_mut(), splitters, num_sequences, max_seq_len);
+                Self::init_sequences(group.as_mut(), iter);
+                GroupInit::Init(unsafe { group.assume_init() })
+            }
+        }
+    }
+
+    fn init_unsafe(
+        group: &mut MaybeUninit<BufferedGroup<T>>,
+        splitters: &[T],
+        num_sequences: usize,
+        max_seq_len: usize,
+    ) {
+        unsafe {
+            let base_group: *mut BaseGroup<T> = &mut (*group.as_mut_ptr()).base as *mut _;
+            (*group.as_mut_ptr()).buffer = GroupBuffer::new();
+            (*base_group).distr = KDistribute::new(splitters);
+            (*base_group).num_sequences = num_sequences;
+            (*base_group).max_seq_len = max_seq_len;
+        }
+    }
+
+    fn init_sequences(
+        group: &mut MaybeUninit<BufferedGroup<T>>,
+        iter: impl DoubleEndedIterator<Item = Sequence<T>>,
+    ) {
+        let seqs: *mut [Sequence<T>; _K] =
+            unsafe { &mut (*group.as_mut_ptr()).base.sequences as *mut _ };
+        let mut idx = _K;
+        for (i, el) in iter.rev().enumerate() {
+            idx = _K - i - 1;
+            unsafe { (*seqs)[idx] = el };
+        }
+        for i in (0..idx).rev() {
+            unsafe { (*seqs)[i] = Sequence::new() };
+        }
     }
 }
 
