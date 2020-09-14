@@ -186,20 +186,19 @@ impl<T: Ord + Clone> Groups<T> {
     fn refill_deletion_heap(&mut self) {
         debug_assert!(self.deletion_heap.is_empty());
 
-        let rng = &mut self.rng;
-        let r_distr = &mut self.r_distr;
-        let cursor = GroupCursor::new(&mut self.group_list);
-        if let Some((seq, err)) =
-            cursor.and_then(|c| Self::pull_non_empty_sequence(rng, r_distr, c))
-        {
-            for el in seq.drain() {
-                // can not fail as one sequence of the first group always fits into the heap
-                self.deletion_heap.push(el).ok().unwrap()
+        while let Some(cursor) = GroupCursor::new(&mut self.group_list) {
+            match Self::pull_non_empty_sequence(&mut self.rng, &mut self.r_distr, cursor) {
+                Ok(Some(seq)) => {
+                    for el in seq.drain() {
+                        // can not fail as one sequence of the first group always fits into the heap
+                        self.deletion_heap.push(el).ok().unwrap()
+                    }
+                    break;
+                }
+                Ok(None) => break,
+                Err((group_idx, seq_idx)) => self.handle_group_overflow(group_idx, seq_idx),
             }
-
-            err.map(|(group_idx, seq_idx)| self.handle_group_overflow(group_idx, seq_idx));
         }
-
         dbg_assertion!(self.structure_check());
     }
 
@@ -207,10 +206,10 @@ impl<T: Ord + Clone> Groups<T> {
         rng: &mut Rand,
         r_distr: &mut RDistribute<T>,
         cursor: GroupCursor<T>,
-    ) -> Option<(usize, usize)> {
+    ) -> Result<(), (usize, usize)> {
         if let Some(mut next) = GroupCursor::step(cursor.idx, cursor.tail) {
             // let max_seq_len = next.group.max_seq_len();
-            if let Some((seq, err)) = Self::pull_non_empty_sequence(rng, r_distr, next.split()) {
+            if let Some(seq) = Self::pull_non_empty_sequence(rng, r_distr, next.split())? {
                 // buffer is empty as a precondition of this function
                 let base_group = cursor.group.base_group();
                 Self::refill_group_from_sequence(
@@ -236,10 +235,9 @@ impl<T: Ord + Clone> Groups<T> {
                     );
                 });
                 dbg_assertion!(cursor.group.structure_check());
-                return err;
             }
         }
-        None
+        Ok(())
     }
 
     /// Tries to retrieve a sequence from the group with the given index,
@@ -248,12 +246,13 @@ impl<T: Ord + Clone> Groups<T> {
         rng: &mut Rand,
         r_distr: &mut RDistribute<T>,
         mut cursor: GroupCursor<'a, T>,
-    ) -> Option<(&'a mut Sequence<T>, Option<(usize, usize)>)> {
-        let mut overflow =
-            Self::resolve_overflow(cursor.group.clear_buffer()).map(|i| (cursor.idx, i));
+    ) -> Result<Option<&'a mut Sequence<T>>, (usize, usize)> {
+        if let Some(i) = Self::resolve_overflow(cursor.group.clear_buffer()) {
+            return Err((cursor.idx, i));
+        }
         let base_group = cursor.group.base_group();
         if base_group.is_empty() {
-            overflow = Self::refill_group(rng, r_distr, cursor.split());
+            Self::refill_group(rng, r_distr, cursor.split())?;
         }
 
         let base_group = cursor.group.base_group();
@@ -277,11 +276,10 @@ impl<T: Ord + Clone> Groups<T> {
                 .map(|splitter| {
                     r_distr.replace_splitter(splitter, idx);
                 });
-                return Some((seq, overflow));
+                return Ok(Some(seq));
             }
         }
-        debug_assert!(overflow.is_none());
-        None
+        Ok(None)
     }
 
     // TODO: structure checks
@@ -353,7 +351,7 @@ impl<T: Ord + Clone> Groups<T> {
         elements.sort();
         debug_assert!(elements.len() == _M + 1);
 
-        if self.group_list.is_empty() {
+        if self.r_distr.len() == 0 {
             // if the first group does not exist yet, initialize it from the deletion heap
             let step = (_M + 1) as f64 / (_K + 1) as f64;
             let first = step.round() as usize;
