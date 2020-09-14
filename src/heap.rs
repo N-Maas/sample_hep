@@ -212,12 +212,7 @@ impl<T: Ord + Clone> Groups<T> {
             if let Some(seq) = Self::pull_non_empty_sequence(rng, r_distr, next.split())? {
                 // buffer is empty as a precondition of this function
                 let base_group = cursor.group.base_group();
-                Self::refill_group_from_sequence(
-                    rng,
-                    base_group,
-                    seq,
-                    &base_group.min_splitter().clone(),
-                );
+                Self::refill_group_from_sequence(rng, base_group, seq);
 
                 Self::scan_and_split(rng, base_group).map(|(mut splitters, sequences)| {
                     // can not fail because scan_and_split does not return an empty iterator
@@ -355,15 +350,14 @@ impl<T: Ord + Clone> Groups<T> {
             // if the first group does not exist yet, initialize it from the deletion heap
             let step = (_M + 1) as f64 / (_K + 1) as f64;
             let first = step.round() as usize;
-            self.r_distr.add_splitter(elements[first].clone());
-
             let splitters: Vec<T> = (2..=_K)
                 .map(|i| elements[(i as f64 * step).round() as usize].clone())
                 .collect();
-            let mut base_group = BaseGroup::new(max_seq_len, &splitters);
-            base_group.forced_insert_all(elements.drain(first..elements.len()));
-            self.group_list
-                .push(Box::new(BufferedGroup::from_base_group(base_group)));
+
+            self.push_group(elements[first].clone(), |b| {
+                b.init_from_splitters(max_seq_len, &splitters)
+            })
+            .forced_insert_all(elements.drain(first..elements.len()));
         } else {
             // otherwise, push half of the elements into the first group
             let mid = elements.len() / 2;
@@ -408,29 +402,33 @@ impl<T: Ord + Clone> Groups<T> {
         let res = base_group.pop_sequence();
         let small_splitter = res.0.unwrap();
         let mut elements = mem::replace(res.1.unwrap(), Sequence::new());
-        let (old_group, overflow) = Self::refill_group_from_sequence(
-            &mut self.rng,
-            base_group,
-            &mut elements,
-            &base_group.min_splitter().clone(),
-        );
-        let (splitters, sequences) = old_group.into_sequences();
+        let mut new_group =
+            match GroupBuilder::new().init_empty(max_seq_len, small_splitter.clone()) {
+                GroupInit::Borrowed(_) => unimplemented!(),
+                GroupInit::Init(group) => group,
+            };
+        let overflow = {
+            let base_group = new_group.as_mut().base_group();
+            Self::refill_group_from_sequence(&mut self.rng, base_group, &mut elements);
+            base_group.scan_for_overflow(0)
+        };
+        let (splitters, sequences) =
+            mem::replace(&mut self.group_list[group_idx], new_group).into_sequences();
 
         // now, move the remaining sequences to the next group
         let sequences = sequences.chain(big_sequence);
         let splitters = splitters.skip(n_skip).chain(big_splitter);
         if group_idx + 1 == num_groups {
             // if the next group does not exist yet, initialize it with the available sequences
-            self.r_distr.add_splitter(small_splitter.clone());
             let splitters: Vec<T> = splitters.collect();
-            let base_group = BaseGroup::from_iter(
-                _SCALING * max_seq_len,
-                &splitters,
-                sequences,
-                small_splitter,
-            );
-            self.group_list
-                .push(Box::new(BufferedGroup::from_base_group(base_group)));
+            self.push_group(small_splitter.clone(), |b| {
+                b.init_from_iter(
+                    _SCALING * max_seq_len,
+                    &splitters,
+                    sequences,
+                    small_splitter,
+                )
+            });
         } else {
             let group = &mut self.group_list[group_idx + 1];
             Self::insert_sequences_to_group(
@@ -452,6 +450,28 @@ impl<T: Ord + Clone> Groups<T> {
         overflow.map(|seq_idx| self.handle_group_overflow(group_idx, seq_idx));
 
         dbg_assertion!(self.group_list[group_idx].structure_check());
+    }
+
+    // TODO: set initial capacity of vecs to avoid unnecessary allocation?
+    fn push_group<F>(&mut self, splitter: T, f: F) -> &mut BaseGroup<T>
+    where
+        F: FnOnce(GroupBuilder<T>) -> GroupInit<T>,
+    {
+        self.r_distr.add_splitter(splitter);
+        if self.group_list.len() < self.r_distr.len() {
+            match f(GroupBuilder::new()) {
+                GroupInit::Borrowed(_) => unreachable!(),
+                GroupInit::Init(group) => {
+                    self.group_list.push(group);
+                    self.group_list.last_mut().unwrap().as_mut().base_group()
+                }
+            }
+        } else {
+            match f(GroupBuilder::borrowed(self.group_list[0].as_mut())) {
+                GroupInit::Borrowed(group) => group.base_group(),
+                GroupInit::Init(_) => unreachable!(),
+            }
+        }
     }
 
     /// Splits the sequence at the given index in two, returning the bigggest sequence
@@ -493,14 +513,10 @@ impl<T: Ord + Clone> Groups<T> {
         rng: &mut Rand,
         base_group: &mut BaseGroup<T>,
         seq: &mut Sequence<T>,
-        default: &T,
-    ) -> (BaseGroup<T>, Option<usize>) {
-        let max_seq_len = base_group.max_seq_len();
+    ) {
+        debug_assert!(base_group.is_empty());
         if seq.len() == 0 {
-            return (
-                mem::replace(base_group, BaseGroup::empty(max_seq_len, default.clone())),
-                None,
-            );
+            return;
         }
 
         let elements = seq.as_vec();
@@ -519,12 +535,9 @@ impl<T: Ord + Clone> Groups<T> {
                 .collect()
         };
         debug_assert!((new_splitters.len() == _K - 1));
-        // TODO: set initial capacity of vecs to avoid unnecessary allocation
-        let replaced = mem::replace(base_group, BaseGroup::new(max_seq_len, &new_splitters));
-        base_group.forced_insert_all(elements.drain(0..elements.len()));
 
-        // let caller handle scanning?
-        (replaced, base_group.scan_for_overflow(0))
+        base_group.replace_splitters(&new_splitters);
+        base_group.forced_insert_all(elements.drain(0..elements.len()));
     }
 
     /// Returns removed sequences and splitters in decreasing order.

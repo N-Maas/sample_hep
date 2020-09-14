@@ -203,63 +203,18 @@ impl<T: Ord> BaseGroup<T> {
     }
 }
 
-impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
-    pub fn new(max_seq_len: usize, splitters: &[T]) -> Self {
-        let mut sequences: MaybeUninit<[Sequence<T>; _K]> = MaybeUninit::uninit();
-        for i in 0.._K {
-            unsafe {
-                (sequences.as_mut_ptr() as *mut Sequence<T>)
-                    .add(i)
-                    .write(Sequence::new());
-            }
-        }
-        let sequences = unsafe { sequences.assume_init() };
-        // TODO: refactor to call Self::from_iter?
-        Self {
-            distr: KDistribute::new(splitters),
-            sequences,
-            num_sequences: splitters.len() + 1,
-            max_seq_len,
-        }
-    }
-
-    pub fn from_iter(
-        max_seq_len: usize,
-        splitters: &[T],
-        iter: impl DoubleEndedIterator<Item = Sequence<T>>,
-        default: T,
-    ) -> Self {
-        debug_assert!(splitters.len() < _K);
-        let default = &[default];
-        let mut result = Self::new(
-            max_seq_len,
-            if !splitters.is_empty() {
-                splitters
-            } else {
-                default
-            },
-        );
-
-        let mut num_sequences = 0;
-        for (i, el) in iter.rev().enumerate() {
-            result.sequences[_K - i - 1] = el;
-            num_sequences = i + 1;
-        }
-        result.num_sequences = num_sequences;
-        result
-    }
-
-    pub fn empty(max_seq_len: usize, default: T) -> Self {
-        let mut result = Self::new(max_seq_len, &[default]);
-        result.num_sequences = 0;
-        result
+impl<T: Ord + Clone> BaseGroup<T> {
+    pub fn replace_splitters(&mut self, splitters: &[T]) {
+        debug_assert!(self.is_empty());
+        self.distr = KDistribute::new(splitters);
+        self.num_sequences = splitters.len() + 1;
     }
 
     /// Adds a new smallest sequence and splitter if the groups number of sequences is not full.
     /// The specified splitter must be bigger then the sequence.
     /// To ensure consistency, a smaller default splitter is used.
     pub fn push_sequence(&mut self, splitter: T, seq: Sequence<T>, default: T) {
-        assert!(self.num_sequences < _K);
+        debug_assert!(self.num_sequences < _K);
         debug_assert!(
             self.num_sequences <= 1 || splitter <= *self.distr.splitter_at(_K - self.num_sequences)
         );
@@ -361,21 +316,6 @@ impl<'a, T: 'a + Ord + Clone> BaseGroup<T> {
         debug_assert!(result.map_or(true, |i| self.sequences[i].len() > self.max_seq_len));
         result
     }
-
-    /// Destructures into the sequences and splitters. Note that invalid splitters are returned, too.
-    pub fn into_sequences(
-        self,
-    ) -> (
-        impl Iterator<Item = T> + 'a,
-        impl DoubleEndedIterator<Item = Sequence<T>> + 'a,
-    ) {
-        (
-            self.distr.into_iter(),
-            ArrayVec::<[Sequence<T>; _K]>::from(self.sequences)
-                .into_iter()
-                .skip(_K - self.num_sequences),
-        )
-    }
 }
 
 #[derive(Debug)]
@@ -431,7 +371,7 @@ impl<T: Ord> BufferedGroup<T> {
 
     /// only usable if buffer is empty
     pub fn base_group(&mut self) -> &mut BaseGroup<T> {
-        assert!(self.buffer.is_empty());
+        debug_assert!(self.buffer.is_empty());
         &mut self.base
     }
 
@@ -458,27 +398,29 @@ impl<T: Ord> BufferedGroup<T> {
     }
 }
 
-impl<T: Ord + Clone> BufferedGroup<T> {
-    pub fn new(max_seq_len: usize, default: T) -> Self {
-        Self {
-            base: BaseGroup::empty(max_seq_len, default),
-            buffer: GroupBuffer::new(),
-        }
-    }
-
-    pub fn from_base_group(base: BaseGroup<T>) -> Self {
-        Self {
-            base,
-            buffer: GroupBuffer::new(),
-        }
-    }
-
+impl<'a, T: Ord + Clone + 'a> BufferedGroup<T> {
     // TODO: better solution for KDistribute consistency requirements?
     /// Adds a new smallest sequence and splitter if the groups number of sequences is not full.
     /// The specified splitter must be bigger then the sequence.
     /// To ensure consistency, a smaller default splitter is used.
     pub fn push_sequence(&mut self, splitter: T, seq: Sequence<T>, default: T) {
         self.base.push_sequence(splitter, seq, default);
+    }
+
+    /// Destructures into the sequences and splitters. Note that invalid splitters are returned, too.
+    pub fn into_sequences(
+        self,
+    ) -> (
+        impl Iterator<Item = T> + 'a,
+        impl DoubleEndedIterator<Item = Sequence<T>> + 'a,
+    ) {
+        debug_assert!(self.buffer.is_empty());
+        (
+            self.base.distr.into_iter(),
+            ArrayVec::<[Sequence<T>; _K]>::from(self.base.sequences)
+                .into_iter()
+                .skip(_K - self.base.num_sequences),
+        )
     }
 }
 
@@ -677,7 +619,11 @@ mod test {
         assert_eq!(val, 2 * _K - 3);
         assert_eq!(*group.max().unwrap(), 2 * _K - 4);
 
-        let (splits, seqs) = group.into_sequences();
+        let (splits, seqs) = BufferedGroup {
+            base: group,
+            buffer: GroupBuffer::new(),
+        }
+        .into_sequences();
         assert_eq!(_K, seqs.count());
         assert_eq!(_K - 1, splits.count());
     }
