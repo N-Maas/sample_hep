@@ -147,7 +147,69 @@ fn extended_medium_benchmark_bheap(c: &mut Criterion) {
     }
 }
 
+fn large_benchmark(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Heap sort: large size benchmarks");
+    group.sample_size(10);
+
+    for size in &[100_000_000] {
+        group.throughput(Throughput::Bytes(4 * *size as u64));
+        for seed in 0..1 {
+            let input = random_sequence(*size, u32::MAX, [seed; 16]);
+            let mut sorted = input.clone();
+            sorted.sort();
+            group.bench_with_input(
+                format!("size={}, seed={}", size, seed),
+                &(&input, &sorted),
+                |b, &(input, sorted)| b.iter(|| assert_vecs_eq(&heap_sort(input), sorted)),
+            );
+        }
+    }
+}
+
+fn large_benchmark_bheap(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Heap sort: large size benchmarks");
+    group.sample_size(10);
+
+    for size in &[100_000_000] {
+        group.throughput(Throughput::Bytes(4 * *size as u64));
+        for seed in 0..1 {
+            let input = random_sequence(*size, u32::MAX, [seed; 16]);
+            let mut sorted = input.clone();
+            sorted.sort();
+            group.bench_with_input(
+                format!("size={}, seed={}", size, seed),
+                &(&input, &sorted),
+                |b, &(input, sorted)| b.iter(|| assert_vecs_eq(&bheap_sort(input), sorted)),
+            );
+        }
+    }
+}
+
+// benchmark to cover a large range of input sizes
+
+fn multiple_sizes_benchmark(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Heap sort: benchmarks for multiple sizes");
+    group.sample_size(10);
+
+    for size in &[
+        /*20_000, 60_000, */ 200_000, 600_000, 2_000_000, 6_000_000, 20_000_000, 60_000_000,
+    ] {
+        group.throughput(Throughput::Bytes(4 * *size as u64));
+        let input = random_sequence(*size, u32::MAX, [7; 16]);
+        let mut sorted = input.clone();
+        sorted.sort();
+        group.bench_with_input(
+            format!("size={}", size),
+            &(&input, &sorted),
+            |b, &(input, sorted)| b.iter(|| assert_vecs_eq(&heap_sort(input), sorted)),
+        );
+    }
+}
+
 criterion_group!(small, small_benchmark, base_benchmark);
 criterion_group!(medium, extended_medium_benchmark);
 criterion_group!(medium_bheap, extended_medium_benchmark_bheap);
+criterion_group!(large, large_benchmark);
+criterion_group!(large_bheap, large_benchmark_bheap);
 criterion_main!(medium);
+criterion_group!(multiple, multiple_sizes_benchmark);
