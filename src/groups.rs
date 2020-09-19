@@ -1,7 +1,9 @@
-use crate::{dbg_assertion, params::*, primitives::*};
+use crate::{dbg_assertion, params::*, primitives::*, stats, stats::*};
 
 use arrayvec::ArrayVec;
-use std::{cmp::Reverse, collections::BinaryHeap, fmt::Debug, iter, mem, mem::MaybeUninit};
+use std::{
+    cmp::Reverse, collections::BinaryHeap, fmt::Debug, iter, mem, mem::MaybeUninit, time::Instant,
+};
 
 /// contains the element that caused the overflow
 #[derive(Debug)]
@@ -133,6 +135,8 @@ impl<T: Ord> BaseGroup<T> {
 
     /// does not test size limit of the sequences
     pub fn forced_insert_all(&mut self, iter: impl Iterator<Item = T>) {
+        let time = Instant::now();
+
         if self.num_sequences == 0 {
             self.num_sequences += 1;
         }
@@ -145,12 +149,16 @@ impl<T: Ord> BaseGroup<T> {
             }
             .push(el);
         }
+
+        stats::add_time(time, &LOOP_TIME);
     }
 
     pub fn overflowing_insert_all(
         &mut self,
         mut iter: &mut impl Iterator<Item = T>,
     ) -> Result<&mut Self, GroupOverflowError<T, iter::Once<T>>> {
+        let time = Instant::now();
+
         if self.num_sequences == 0 {
             self.num_sequences += 1;
         }
@@ -171,6 +179,9 @@ impl<T: Ord> BaseGroup<T> {
                 });
             }
         }
+
+        stats::add_time(time, &LOOP_TIME);
+
         Ok(self)
     }
 

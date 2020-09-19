@@ -1,8 +1,8 @@
-use crate::{dbg_assertion, groups::*, params::*, primitives::*};
+use crate::{dbg_assertion, groups::*, params::*, primitives::*, stats, stats::*};
 use arrayvec::ArrayVec;
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg32;
-use std::{fmt::Debug, iter, iter::FromIterator, mem};
+use std::{fmt::Debug, iter, iter::FromIterator, mem, time::Instant};
 
 type Rand = Pcg32;
 
@@ -114,7 +114,9 @@ impl<T: Ord + Clone> FlatHeap<T> {
 
     pub fn pop(&mut self) -> Option<T> {
         if self.groups.deletion_heap.is_empty() {
+            let refill_time = Instant::now();
             self.groups.refill_deletion_heap();
+            stats::add_time(refill_time, &REFILL_TIME);
         }
 
         let result = self.groups.deletion_heap.pop();
@@ -191,7 +193,7 @@ impl<T: Ord + Clone> Groups<T> {
                 Ok(None) => break,
                 Err(vec) => {
                     for (group_idx, seq_idx) in vec {
-                        self.handle_group_overflow(group_idx, seq_idx)
+                        self.handle_group_overflow(group_idx, seq_idx, false)
                     }
                 }
             }
@@ -220,6 +222,8 @@ impl<T: Ord + Clone> Groups<T> {
             };
 
             if refill_sequence.len() > 0 {
+                stats::count(&PULL_COUNTER);
+
                 // buffer is empty as a precondition of this function
                 let base_group = cursor.group.base_group();
                 Self::refill_group_from_sequence(rng, base_group, &mut refill_sequence);
@@ -299,7 +303,7 @@ impl<T: Ord + Clone> Groups<T> {
                 let group_idx = idx - 1;
                 let group = self.group_list[group_idx].as_mut();
                 Self::resolve_overflow(group.push(el))
-                    .unwrap_or_else(|seq_idx| self.handle_group_overflow(group_idx, seq_idx));
+                    .unwrap_or_else(|seq_idx| self.handle_group_overflow(group_idx, seq_idx, false));
             }
         }
 
@@ -350,6 +354,8 @@ impl<T: Ord + Clone> Groups<T> {
 
     // TODO: use quickselect or a sampled element instead of sorting?
     fn handle_deletion_heap_overflow(&mut self, remaining: T) {
+        let time = Instant::now();
+
         let max_seq_len = _M;
 
         let mut elements: Vec<T> = self.deletion_heap.get_as_vec();
@@ -383,7 +389,7 @@ impl<T: Ord + Clone> Groups<T> {
                 None.into_iter(),
                 iter::once(seq),
             )
-            .unwrap_or_else(|(group_idx, seq_idx)| self.handle_group_overflow(group_idx, seq_idx));
+            .unwrap_or_else(|(group_idx, seq_idx)| self.handle_group_overflow(group_idx, seq_idx, false));
         }
 
         // TODO
@@ -393,9 +399,13 @@ impl<T: Ord + Clone> Groups<T> {
         }
 
         dbg_assertion!(self.structure_check());
+
+        stats::add_time(time, &DEL_OVERFLOW_TIME);
     }
 
-    fn handle_group_overflow(&mut self, group_idx: usize, seq_idx: usize) {
+    fn handle_group_overflow(&mut self, group_idx: usize, seq_idx: usize, rec: bool) {
+        let time = Instant::now();
+
         debug_assert!(group_idx < self.r_distr.len() && seq_idx < _K);
         let num_groups = self.r_distr.len();
         let base_group = self.group_list[group_idx].clear_buffer_forced();
@@ -451,13 +461,17 @@ impl<T: Ord + Clone> Groups<T> {
                 splitters.collect::<Vec<_>>().into_iter().rev(),
                 sequences.rev(),
             )
-            .unwrap_or_else(|(group_idx, seq_idx)| self.handle_group_overflow(group_idx, seq_idx));
+            .unwrap_or_else(|(group_idx, seq_idx)| self.handle_group_overflow(group_idx, seq_idx, false));
         }
 
         // it is very, really, extremely unlikely that an overflow happens here
-        overflow.map(|seq_idx| self.handle_group_overflow(group_idx, seq_idx));
+        overflow.map(|seq_idx| self.handle_group_overflow(group_idx, seq_idx, true));
 
         dbg_assertion!(self.group_list[group_idx].structure_check());
+
+        if !rec {
+            stats::add_time(time, &GROUP_OVERFLOW_TIME);
+        }
     }
 
     // TODO: set initial capacity of vecs to avoid unnecessary allocation?
@@ -524,6 +538,8 @@ impl<T: Ord + Clone> Groups<T> {
         base_group: &mut BaseGroup<T>,
         seq: &mut Sequence<T>,
     ) {
+        let time = Instant::now();
+
         debug_assert!(base_group.is_empty());
         if seq.len() == 0 {
             return;
@@ -545,6 +561,8 @@ impl<T: Ord + Clone> Groups<T> {
 
         base_group.replace_splitters(&new_splitters);
         base_group.forced_insert_all(elements.drain(0..elements.len()));
+
+        stats::add_time(time, &REFILL_GROUP_TIME);
     }
 
     /// Returns removed sequences and splitters in decreasing order.
@@ -555,10 +573,14 @@ impl<T: Ord + Clone> Groups<T> {
         impl DoubleEndedIterator<Item = T>,
         impl DoubleEndedIterator<Item = Sequence<T>>,
     )> {
+        let time = Instant::now();
+
         let mut splitters = Vec::new();
         let mut sequences = Vec::new();
         let mut curr_idx = 0;
         while let Some(seq_idx) = base_group.scan_for_overflow(curr_idx) {
+            stats::count(&PULL_OVERFLOW_COUNTER);
+
             // don't use idx + 1, it could be necessary to split the sequence again
             curr_idx = seq_idx;
             Self::split_in_two(rng, base_group, seq_idx).map(|(splitter, seq)| {
@@ -567,6 +589,8 @@ impl<T: Ord + Clone> Groups<T> {
             });
         }
         dbg_assertion!(base_group.structure_check());
+
+        stats::add_time(time, &SCAN_AND_SPLIT_TIME);
 
         if splitters.is_empty() {
             None

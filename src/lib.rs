@@ -10,4 +10,5 @@ mod params;
 mod primitives;
 
 pub mod heap;
+pub mod stats;
 pub use heap::SampleHeap;

@@ -4,8 +4,8 @@ extern crate lazy_static;
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg32;
-use sample_heap::{heap::FlatHeap, SampleHeap};
-use std::{cmp::Reverse, collections::BinaryHeap, fmt::Debug};
+use sample_heap::{heap::FlatHeap, stats, stats::*, SampleHeap};
+use std::{cmp::Reverse, collections::BinaryHeap, fmt::Debug, time::Instant};
 
 fn random_sequence(len: usize, range: u32, seed: [u8; 16]) -> Vec<u32> {
     let mut rng = Pcg32::from_seed(seed);
@@ -17,20 +17,24 @@ fn random_sequence(len: usize, range: u32, seed: [u8; 16]) -> Vec<u32> {
 }
 
 fn heap_sort(input: &Vec<u32>) -> Vec<u32> {
+    let time = Instant::now();
+
     let mut heap = FlatHeap::new();
     let mut result = Vec::with_capacity(input.len());
 
-    // let start = Instant::now();
+    let push_time = Instant::now();
     for val in input {
         heap.push(*val);
     }
-    // println!("filling time: {}", start.elapsed().as_micros());
-    // heap.print_structure();
-    // let mid = Instant::now();
+    stats::add_time(push_time, &PUSH_TIME);
+
+    let pop_time = Instant::now();
     while let Some(el) = heap.pop() {
         result.push(el);
     }
-    // println!("pulling time: {}", mid.elapsed().as_micros());
+    stats::add_time(pop_time, &POP_TIME);
+
+    stats::add_time(time, &TOTAL_TIME);
     result
 }
 
@@ -198,11 +202,14 @@ fn multiple_sizes_benchmark(c: &mut Criterion) {
         let input = random_sequence(*size, u32::MAX, [7; 16]);
         let mut sorted = input.clone();
         sorted.sort();
+
+        stats::reset_stats();
         group.bench_with_input(
             format!("size={}", size),
             &(&input, &sorted),
             |b, &(input, sorted)| b.iter(|| assert_vecs_eq(&heap_sort(input), sorted)),
         );
+        stats::print_stats();
     }
 }
 
