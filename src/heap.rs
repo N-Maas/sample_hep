@@ -497,7 +497,9 @@ impl<T: Ord + Clone> Groups<T> {
                 }
             }
         } else {
-            match f(GroupBuilder::borrowed(self.group_list[0].as_mut())) {
+            match f(GroupBuilder::borrowed(
+                self.group_list[self.r_distr.len() - 1].as_mut(),
+            )) {
                 GroupInit::Borrowed(group) => group.base_group(),
                 GroupInit::Init(_) => unreachable!(),
             }
