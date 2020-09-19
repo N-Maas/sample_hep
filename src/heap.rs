@@ -481,7 +481,9 @@ impl<T: Ord + Clone> Groups<T> {
                 }
             }
         } else {
-            match f(GroupBuilder::borrowed(self.group_list[0].as_mut())) {
+            match f(GroupBuilder::borrowed(
+                self.group_list[self.r_distr.len() - 1].as_mut(),
+            )) {
                 GroupInit::Borrowed(group) => group.base_group(),
                 GroupInit::Init(_) => unreachable!(),
             }
@@ -543,11 +545,7 @@ impl<T: Ord + Clone> Groups<T> {
             debug_assert!(sample.len() == (_K - 1) * _SAMPLING_SIZE * _SAMPLING_COUNT);
             let skip = _SAMPLING_SIZE * _SAMPLING_COUNT;
             sample.sort();
-            sample
-                .into_iter()
-                .skip(skip / 2)
-                .step_by(skip)
-                .collect()
+            sample.into_iter().skip(skip / 2).step_by(skip).collect()
         };
         debug_assert!((new_splitters.len() == _K - 1));
 
