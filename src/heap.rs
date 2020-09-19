@@ -221,7 +221,7 @@ impl<T: Ord + Clone> Groups<T> {
 
                 let mut refill_sequence = mem::replace(seq, Sequence::new());
                 let mut max_elements =
-                    max_elements / 4 - usize::min(refill_sequence.len(), max_elements / 4);
+                    max_elements - usize::min(refill_sequence.len(), max_elements);
 
                 // TODO: avoid unnecessary copies
                 while let Some(seq) =
@@ -517,7 +517,7 @@ impl<T: Ord + Clone> Groups<T> {
         let splitter = {
             let mut sample = Self::choose_sample(rng, &elements.as_vec());
             sample.sort();
-            sample[_SAMPLING / 2].clone()
+            sample[_SAMPLING_SIZE / 2].clone()
         };
 
         for el in elements.drain() {
@@ -555,15 +555,16 @@ impl<T: Ord + Clone> Groups<T> {
         let new_splitters: ArrayVec<[T; _K - 1]> = {
             // TODO: in theory, this could be replaced with an ArrayVec
             let mut sample: Vec<T> = Vec::new();
-            for _ in 1.._K {
+            for _ in 0..((_K - 1) * _SAMPLING_COUNT) {
                 sample.extend(Self::choose_sample(rng, &elements));
             }
-            debug_assert!(sample.len() == (_K - 1) * _SAMPLING);
+            debug_assert!(sample.len() == (_K - 1) * _SAMPLING_SIZE * _SAMPLING_COUNT);
+            let skip = _SAMPLING_SIZE * _SAMPLING_COUNT;
             sample.sort();
             sample
                 .into_iter()
-                .skip(_SAMPLING / 2)
-                .step_by(_SAMPLING)
+                .skip(skip / 2)
+                .step_by(skip)
                 .collect()
         };
         debug_assert!((new_splitters.len() == _K - 1));
@@ -624,24 +625,24 @@ impl<T: Ord + Clone> Groups<T> {
         )
     }
 
-    fn choose_sample<'a>(rng: &mut Rand, elements: &'a [T]) -> ArrayVec<[T; _SAMPLING]> {
+    fn choose_sample<'a>(rng: &mut Rand, elements: &'a [T]) -> ArrayVec<[T; _SAMPLING_SIZE]> {
         debug_assert!(!elements.is_empty());
-        let num_steps = elements.len() / _SAMPLING;
-        let result: ArrayVec<[T; _SAMPLING]> = if num_steps == 0 {
+        let num_steps = elements.len() / _SAMPLING_SIZE;
+        let result: ArrayVec<[T; _SAMPLING_SIZE]> = if num_steps == 0 {
             iter::repeat(elements)
                 .flat_map(|els| els.iter().cloned())
-                .take(_SAMPLING)
+                .take(_SAMPLING_SIZE)
                 .collect()
         } else {
             let step_idx = rng.gen_range(0, num_steps);
-            let start = _SAMPLING * step_idx;
-            elements[start..(start + _SAMPLING)]
+            let start = _SAMPLING_SIZE * step_idx;
+            elements[start..(start + _SAMPLING_SIZE)]
                 .iter()
                 .cloned()
                 .collect()
         };
 
-        assert!(result.len() == _SAMPLING);
+        assert!(result.len() == _SAMPLING_SIZE);
         result
     }
 

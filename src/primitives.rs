@@ -483,7 +483,7 @@ impl<T: Ord> FromIterator<T> for Sequence<T> {
 
 #[derive(Debug)]
 pub(crate) struct GroupBuffer<T> {
-    data: ArrayVec<[T; _M]>,
+    data: ArrayVec<[T; _BUFFER_SIZE]>,
 }
 
 impl<T: Ord> GroupBuffer<T> {
