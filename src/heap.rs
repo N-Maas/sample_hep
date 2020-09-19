@@ -191,7 +191,7 @@ impl<T: Ord + Clone> Groups<T> {
         debug_assert!(self.deletion_heap.is_empty());
 
         while let Some(cursor) = GroupCursor::new(&mut self.group_list) {
-            match Self::pull_non_empty_sequence(&mut self.rng, &mut self.r_distr, cursor) {
+            match Self::pull_non_empty_sequence(&mut self.rng, &mut self.r_distr, cursor, _M) {
                 Ok(Some(seq)) => {
                     for el in seq.drain() {
                         // can not fail as one sequence of the first group always fits into the heap
@@ -212,13 +212,28 @@ impl<T: Ord + Clone> Groups<T> {
         cursor: GroupCursor<T>,
     ) -> Result<(), (usize, usize)> {
         if let Some(mut next) = GroupCursor::step(cursor.idx, cursor.tail) {
-            // let max_seq_len = next.group.max_seq_len();
-            if let Some(seq) = Self::pull_non_empty_sequence(rng, r_distr, next.split())? {
+            let max_elements = next.group.max_seq_len();
+
+            if let Some(seq) =
+                Self::pull_non_empty_sequence(rng, r_distr, next.split(), max_elements)?
+            {
                 stats::count(&PULL_COUNTER);
+
+                let mut refill_sequence = mem::replace(seq, Sequence::new());
+                let mut max_elements =
+                    max_elements / 4 - usize::min(refill_sequence.len(), max_elements / 4);
+
+                // TODO: avoid unnecessary copies
+                while let Some(seq) =
+                    Self::pull_non_empty_sequence(rng, r_distr, next.split(), max_elements)?
+                {
+                    max_elements -= seq.len();
+                    refill_sequence.append(seq);
+                }
 
                 // buffer is empty as a precondition of this function
                 let base_group = cursor.group.base_group();
-                Self::refill_group_from_sequence(rng, base_group, seq);
+                Self::refill_group_from_sequence(rng, base_group, &mut refill_sequence);
 
                 Self::scan_and_split(rng, base_group).map(|(mut splitters, sequences)| {
                     // can not fail because scan_and_split does not return an empty iterator
@@ -226,17 +241,15 @@ impl<T: Ord + Clone> Groups<T> {
 
                     // edge case: last group was removed by pull_non_empty_sequence
                     if next.idx == r_distr.len() {
-                        // TODO: group cache
-                        // self.group_list
-                        //     .push(Box::new(BufferedGroup::new(max_seq_len, splitter.clone())));
                         r_distr.add_splitter(splitter.clone());
                     }
                     Self::insert_sequences_to_group(
                         r_distr, next.idx, next.group, splitter, splitters, sequences,
                     );
                 });
-                dbg_assertion!(cursor.group.structure_check());
             }
+
+            dbg_assertion!(cursor.group.structure_check());
         }
         Ok(())
     }
@@ -247,6 +260,7 @@ impl<T: Ord + Clone> Groups<T> {
         rng: &mut Rand,
         r_distr: &mut RDistribute<T>,
         mut cursor: GroupCursor<'a, T>,
+        max_elements: usize,
     ) -> Result<Option<&'a mut Sequence<T>>, (usize, usize)> {
         if let Some(i) = Self::resolve_overflow(cursor.group.clear_buffer()) {
             return Err((cursor.idx, i));
@@ -258,7 +272,7 @@ impl<T: Ord + Clone> Groups<T> {
 
         let base_group = cursor.group.base_group();
         base_group.pop_empty();
-        if let (splitter, Some(seq)) = base_group.pop_sequence() {
+        if let (splitter, Some(seq)) = base_group.pop_sequence_if(|s| s.len() <= max_elements) {
             if seq.len() > 0 {
                 let idx = cursor.idx;
                 match splitter {

@@ -243,7 +243,15 @@ impl<T: Ord + Clone> BaseGroup<T> {
 
     /// Returns a bigger splitter, if available.
     pub fn pop_sequence(&mut self) -> (Option<T>, Option<&mut Sequence<T>>) {
-        if self.num_sequences > 0 {
+        self.pop_sequence_if(|_| true)
+    }
+
+    /// Returns a bigger splitter, if available.
+    pub fn pop_sequence_if(
+        &mut self,
+        predicate: impl FnOnce(&Sequence<T>) -> bool,
+    ) -> (Option<T>, Option<&mut Sequence<T>>) {
+        if self.num_sequences > 0 && predicate(&self.sequences[_K - self.num_sequences]) {
             self.num_sequences -= 1;
             let seq = &mut self.sequences[_K - self.num_sequences - 1];
 
@@ -266,9 +274,7 @@ impl<T: Ord + Clone> BaseGroup<T> {
 
     /// Pop all empty sequences.
     pub fn pop_empty(&mut self) {
-        while self.num_sequences > 0 && (self.sequences[_K - self.num_sequences].len() == 0) {
-            self.pop_sequence();
-        }
+        while let (_, Some(_)) = self.pop_sequence_if(|s| s.len() == 0) {}
     }
 
     /// Inserts a sequence before the sequence that is currently at the given index.

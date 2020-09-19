@@ -218,5 +218,5 @@ criterion_group!(medium, extended_medium_benchmark);
 criterion_group!(medium_bheap, extended_medium_benchmark_bheap);
 criterion_group!(large, large_benchmark);
 criterion_group!(large_bheap, large_benchmark_bheap);
-criterion_main!(medium);
 criterion_group!(multiple, multiple_sizes_benchmark);
+criterion_main!(multiple);
