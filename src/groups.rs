@@ -714,19 +714,19 @@ mod test {
             group.base.push_sequence(2 * i + 2, seq, 0);
         }
 
-        for i in 0..=_M {
+        for i in 0..=_BUFFER_SIZE {
             match group.push(i) {
                 Ok(_) => {}
                 Err(e) => {
                     let mut remaining: Vec<usize> = e.remaining.collect();
                     remaining.sort();
-                    assert_eq!(Vec::from_iter(0..=_M), remaining);
+                    assert_eq!(Vec::from_iter(0..=_BUFFER_SIZE), remaining);
 
                     e.base_group.forced_insert_all(remaining.into_iter());
                 }
             }
         }
-        group.base.max_seq_len = _M;
+        group.base.max_seq_len = _BUFFER_SIZE;
         assert!(group.structure_check());
     }
 }
