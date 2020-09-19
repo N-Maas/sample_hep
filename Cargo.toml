@@ -16,6 +16,8 @@ smallvec = "1.4"
 rand = "0.7"
 rand_pcg = "0.2"
 lazy_static = "1.4"
+# used only for timings
+num-format = "0.4"
 
 [dependencies.arrayvec]
 version = "0.5"
