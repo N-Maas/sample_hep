@@ -193,7 +193,11 @@ impl<T: Ord + Clone> Groups<T> {
                     break;
                 }
                 Ok(None) => break,
-                Err((group_idx, seq_idx)) => self.handle_group_overflow(group_idx, seq_idx, false),
+                Err(vec) => {
+                    for (group_idx, seq_idx) in vec {
+                        self.handle_group_overflow(group_idx, seq_idx, false)
+                    }
+                }
             }
         }
         dbg_assertion!(self.structure_check());
@@ -203,27 +207,23 @@ impl<T: Ord + Clone> Groups<T> {
         rng: &mut Rand,
         r_distr: &mut RDistribute<T>,
         cursor: GroupCursor<T>,
-    ) -> Result<(), (usize, usize)> {
+    ) -> Result<(), Vec<(usize, usize)>> {
         if let Some(mut next) = GroupCursor::step(cursor.idx, cursor.tail) {
-            let max_elements = next.group.max_seq_len();
+            let mut refill_sequence = Sequence::new();
+            let mut max_elements = next.group.max_seq_len();
 
-            if let Some(seq) =
-                Self::pull_non_empty_sequence(rng, r_distr, next.split(), max_elements)?
-            {
-                stats::count(&PULL_COUNTER);
-
-                let mut refill_sequence = mem::replace(seq, Sequence::new());
-                let mut max_elements =
-                    max_elements - usize::min(refill_sequence.len(), max_elements);
-
-                // TODO: avoid unnecessary copies
-                while let Some(seq) =
-                    Self::pull_non_empty_sequence(rng, r_distr, next.split(), max_elements)?
-                {
-                    max_elements -= seq.len();
-                    refill_sequence.append(seq);
+            let mut result = loop {
+                match Self::pull_non_empty_sequence(rng, r_distr, next.split(), max_elements) {
+                    Ok(Some(seq)) => {
+                        refill_sequence.append(seq);
+                        max_elements -= seq.len();
+                    }
+                    Ok(None) => break Ok(()),
+                    Err(e) => break Err(e),
                 }
+            };
 
+            if refill_sequence.len() > 0 {
                 // buffer is empty as a precondition of this function
                 let base_group = cursor.group.base_group();
                 Self::refill_group_from_sequence(rng, base_group, &mut refill_sequence);
@@ -236,13 +236,19 @@ impl<T: Ord + Clone> Groups<T> {
                     if next.idx == r_distr.len() {
                         r_distr.add_splitter(splitter.clone());
                     }
+                    let result = &mut result;
                     Self::insert_sequences_to_group(
                         r_distr, next.idx, next.group, splitter, splitters, sequences,
-                    )?;
+                    )
+                    .unwrap_or_else(|err| match result {
+                        Ok(()) => *result = Err(vec![err]),
+                        Err(vec) => vec.push(err),
+                    });
                 }
             }
 
             dbg_assertion!(cursor.group.structure_check());
+            return result;
         }
         Ok(())
     }
@@ -254,8 +260,8 @@ impl<T: Ord + Clone> Groups<T> {
         r_distr: &mut RDistribute<T>,
         mut cursor: GroupCursor<'a, T>,
         max_elements: usize,
-    ) -> Result<Option<&'a mut Sequence<T>>, (usize, usize)> {
-        Self::resolve_overflow(cursor.group.clear_buffer()).map_err(|i| (cursor.idx, i))?;
+    ) -> Result<Option<&'a mut Sequence<T>>, Vec<(usize, usize)>> {
+        Self::resolve_overflow(cursor.group.clear_buffer()).map_err(|i| vec![(cursor.idx, i)])?;
         let base_group = cursor.group.base_group();
         if base_group.is_empty() {
             Self::refill_group(rng, r_distr, cursor.split())?;
@@ -412,6 +418,10 @@ impl<T: Ord + Clone> Groups<T> {
         let num_groups = self.r_distr.len();
         let base_group = self.group_list[group_idx].clear_buffer_forced();
         let max_seq_len = base_group.max_seq_len();
+
+        if base_group.sequence_at(seq_idx).len() <= max_seq_len {
+            return;
+        }
 
         // split the overflowing sequence, removing the biggest sequence from the group
         let (big_splitter, big_sequence) = Self::split_in_two(&mut self.rng, base_group, seq_idx)
