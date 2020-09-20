@@ -246,6 +246,11 @@ impl<T: Ord + Clone> Groups<T> {
                     Self::insert_sequences_to_group(
                         r_distr, next.idx, next.group, splitter, splitters, sequences,
                     );
+
+                    debug_assert!(
+                        next.group.num_sequences() < _K
+                            || next.group.first_or_insert().len() <= next.group.max_seq_len()
+                    );
                 });
             }
 
