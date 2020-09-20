@@ -519,6 +519,10 @@ impl<T: Ord> GroupBuffer<T> {
     pub fn max(&self) -> Option<&T> {
         self.data.iter().max()
     }
+
+    pub fn count(&self) -> usize {
+        self.data.len()
+    }
 }
 
 #[cfg(test)]

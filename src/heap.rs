@@ -35,12 +35,6 @@ impl<T: Ord + Clone> SampleHeap<T> {
 
     pub fn is_empty(&self) -> bool {
         let result = self.len == 0;
-        // TODO: remove this when sufficiently tested
-        debug_assert!(
-            self.insertion_heap.is_empty()
-                && self.groups.deletion_heap.is_empty()
-                && self.groups.group_list.iter().all(|g| g.is_empty()) == result
-        );
         result
     }
 
@@ -70,6 +64,7 @@ impl<T: Ord + Clone> SampleHeap<T> {
             self.len -= 1;
         }
 
+        debug_assert!(self.len() == self.groups.count() + self.insertion_heap.count());
         result
     }
 
@@ -84,6 +79,7 @@ impl<T: Ord + Clone> SampleHeap<T> {
                 self.insertion_heap.push(remaining).ok().unwrap();
             });
         self.len += 1;
+        debug_assert!(self.len() == self.groups.count() + self.insertion_heap.count());
     }
 }
 
@@ -109,11 +105,6 @@ impl<T: Ord + Clone> FlatHeap<T> {
 
     pub fn is_empty(&self) -> bool {
         let result = self.len == 0;
-        // TODO: remove this when sufficiently tested
-        debug_assert!(
-            self.groups.deletion_heap.is_empty()
-                && self.groups.group_list.iter().all(|g| g.is_empty()) == result
-        );
         result
     }
 
@@ -133,12 +124,14 @@ impl<T: Ord + Clone> FlatHeap<T> {
             self.len -= 1;
         }
 
+        debug_assert!(self.len() == self.groups.count());
         result
     }
 
     pub fn push(&mut self, el: T) {
         self.groups.insert_all(iter::once(el));
         self.len += 1;
+        debug_assert!(self.len() == self.groups.count());
     }
 }
 
@@ -659,6 +652,14 @@ impl<T: Ord + Clone> Groups<T> {
             prev_max = group.max()
         }
         valid
+    }
+
+    pub fn count(&self) -> usize {
+        let mut count = self.deletion_heap.count();
+        for i in 0..self.r_distr.len() {
+            count += self.group_list[i].count()
+        }
+        count
     }
 }
 
