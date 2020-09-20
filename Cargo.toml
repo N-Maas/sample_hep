@@ -11,8 +11,6 @@ bench = false
 
 [dependencies]
 static_assertions = "1.1"
-# possibly smallvec can be exchanged with a usual Vec
-smallvec = "1.4"
 rand = "0.7"
 rand_pcg = "0.2"
 lazy_static = "1.4"

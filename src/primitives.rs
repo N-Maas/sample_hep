@@ -2,7 +2,6 @@ use crate::params::*;
 
 use arrayvec::ArrayVec;
 use mem::MaybeUninit;
-use smallvec::SmallVec;
 use std::{
     borrow::Cow, cmp::Ordering, convert::AsRef, fmt::Debug, iter::FromIterator, mem, ops::IndexMut,
 };
@@ -307,7 +306,7 @@ impl<T: Debug + Ord> Debug for KDistribute<T> {
     }
 }
 
-impl<T: Ord> TreeBuffer<T, [T]> for SmallVec<[T; 5]> {
+impl<T: Ord> TreeBuffer<T, [T]> for Vec<T> {
     fn len(&self) -> usize {
         self.len()
     }
@@ -317,19 +316,19 @@ impl<T: Ord> TreeBuffer<T, [T]> for SmallVec<[T; 5]> {
     }
 
     unsafe fn get_unchecked(&self, index: usize) -> &T {
-        self.as_ref().get_unchecked(index)
+        self.as_slice().get_unchecked(index)
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct RDistribute<T: Ord> {
-    tree: SmallVec<[T; 5]>,
+    tree: Vec<T>,
 }
 
 impl<T: Ord> RDistribute<T> {
     pub fn new() -> Self {
         Self {
-            tree: SmallVec::new(),
+            tree: Vec::new(),
         }
     }
 
@@ -380,7 +379,7 @@ impl<T: Ord> RDistribute<T> {
 impl<T: Ord + Clone> RDistribute<T> {
     /// adds a splitter at the last index by rebuilding the complete tree
     pub fn add_splitter(&mut self, s: T) {
-        let mut buffer = SmallVec::<[T; 5]>::new();
+        let mut buffer = Vec::<T>::new();
         buffer.resize(self.tree.len(), s.clone());
 
         flat_tree_index_order(self.tree.len())
@@ -396,7 +395,7 @@ impl<T: Ord + Clone> RDistribute<T> {
     }
     /// removes the last splitter by rebuilding the complete tree
     pub fn remove_splitter(&mut self) {
-        let mut buffer = SmallVec::<[T; 5]>::new();
+        let mut buffer = Vec::<T>::new();
         buffer.resize(self.tree.len(), self.tree[0].clone());
 
         flat_tree_index_order(self.tree.len())

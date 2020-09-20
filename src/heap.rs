@@ -2,7 +2,6 @@ use crate::{dbg_assertion, groups::*, params::*, primitives::*};
 use arrayvec::ArrayVec;
 use rand::{Rng, SeedableRng};
 use rand_pcg::Pcg32;
-use smallvec::SmallVec;
 use std::{fmt::Debug, iter, iter::FromIterator, mem};
 
 type Rand = Pcg32;
@@ -28,7 +27,7 @@ impl<T: Ord + Clone> SampleHeap<T> {
                 rng: Rand::from_seed([0; 16]),
                 r_distr: RDistribute::new(),
                 deletion_heap: BufferHeap::new(),
-                group_list: SmallVec::new(),
+                group_list: Vec::new(),
             },
         }
     }
@@ -98,7 +97,7 @@ impl<T: Ord + Clone> FlatHeap<T> {
                 rng: Rand::from_seed([0; 16]),
                 r_distr: RDistribute::new(),
                 deletion_heap: BufferHeap::new(),
-                group_list: SmallVec::new(),
+                group_list: Vec::new(),
             },
         }
     }
@@ -174,7 +173,7 @@ struct Groups<T: Ord + Clone> {
     deletion_heap: BufferHeap<T>,
     // note that a BufferedGroup is really large and thus moves should be avoided
     // (around 3/6 KByte for i32/i64)
-    group_list: SmallVec<[Box<BufferedGroup<T>>; 5]>,
+    group_list: Vec<Box<BufferedGroup<T>>>,
 }
 
 impl<T: Ord + Clone> Groups<T> {
