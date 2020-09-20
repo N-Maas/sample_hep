@@ -292,7 +292,7 @@ impl<T: Ord + Clone> BaseGroup<T> {
 
         let result = if self.num_sequences < _K {
             // really nasty edge case for invalid splitters
-            if idx + 1 == _K - self.num_sequences {
+            if idx == _K - self.num_sequences + 1 {
                 for i in 0..(idx - 1) {
                     self.distr.replace_splitter(splitter.clone(), i);
                 }
@@ -616,10 +616,13 @@ mod test {
         assert_eq!(None, group.min());
         assert_eq!(None, group.max());
 
-        for i in (0.._K).rev() {
+        for i in (0.._K).rev().step_by(2) {
+            let mut seq = Sequence::new();
+            seq.push(2 * i - 2);
+            group.push_sequence(2 * i + 2, seq, 2 * i + 2);
             let mut seq = Sequence::new();
             seq.push(2 * i);
-            group.push_sequence(2 * i + 2, seq, 0);
+            group.insert_sequence(2 * i, seq, i + 1);
         }
         assert_eq!(*group.min().unwrap(), 0);
         assert_eq!(*group.max().unwrap(), 2 * _K - 2);
