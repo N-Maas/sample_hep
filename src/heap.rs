@@ -468,7 +468,7 @@ impl<T: Ord + Clone> Groups<T> {
 
             // handle overflow
             if group.first_or_insert().len() > group.max_seq_len() {
-                self.handle_group_overflow(group_idx, 0, true);
+                self.handle_group_overflow(group_idx + 1, 0, true);
             }
         }
 
@@ -563,11 +563,7 @@ impl<T: Ord + Clone> Groups<T> {
             debug_assert!(sample.len() == (_K - 1) * _SAMPLING_SIZE * _SAMPLING_COUNT);
             let skip = _SAMPLING_SIZE * _SAMPLING_COUNT;
             sample.sort();
-            sample
-                .into_iter()
-                .skip(skip / 2)
-                .step_by(skip)
-                .collect()
+            sample.into_iter().skip(skip / 2).step_by(skip).collect()
         };
         debug_assert!((new_splitters.len() == _K - 1));
 
