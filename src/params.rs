@@ -3,15 +3,15 @@
 #[cfg(test)]
 pub const _K: usize = 8;
 #[cfg(not(test))]
-pub const _K: usize = 128;
+pub const _K: usize = 8;
 #[cfg(test)]
 pub const _M: usize = 16;
 #[cfg(not(test))]
-pub const _M: usize = 1024;
+pub const _M: usize = 8;
 #[cfg(test)]
 pub const _BUFFER_SIZE: usize = 32;
 #[cfg(not(test))]
-pub const _BUFFER_SIZE: usize = 2048;
+pub const _BUFFER_SIZE: usize = 16;
 
 pub const _SCALING: usize = _K / 2;
 pub const _SAMPLING_SIZE: usize = 3;
