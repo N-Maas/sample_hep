@@ -209,14 +209,14 @@ impl<T: Ord + Clone> Groups<T> {
         cursor: GroupCursor<T>,
     ) -> Result<(), Vec<(usize, usize)>> {
         if let Some(mut next) = GroupCursor::step(cursor.idx, cursor.tail) {
-            let mut refill_sequence = Sequence::new();
             let mut max_elements = next.group.max_seq_len();
+            let mut refill_sequence = Sequence::new();
 
             let mut result = loop {
                 match Self::pull_non_empty_sequence(rng, r_distr, next.split(), max_elements) {
                     Ok(Some(seq)) => {
-                        refill_sequence.append(seq);
                         max_elements -= seq.len();
+                        refill_sequence.append(seq);
                     }
                     Ok(None) => break Ok(()),
                     Err(e) => break Err(e),
@@ -270,26 +270,23 @@ impl<T: Ord + Clone> Groups<T> {
         let base_group = cursor.group.base_group();
         base_group.pop_empty();
         if let (splitter, Some(seq)) = base_group.pop_sequence_if(|s| s.len() <= max_elements) {
-            if seq.len() > 0 {
-                let idx = cursor.idx;
-                match splitter {
-                    Some(s) => Some(s),
-                    None => {
-                        if r_distr.len() == cursor.idx + 1 {
-                            // TODO: cache groups to avoid unnecessary allocation?
-                            // self.group_list.pop();
-                            r_distr.remove_splitter();
-                            None
-                        } else {
-                            Some(r_distr.splitter_at(cursor.idx + 1).clone())
-                        }
+            debug_assert!(seq.len() > 0);
+            let idx = cursor.idx;
+            match splitter {
+                Some(s) => Some(s),
+                None => {
+                    if r_distr.len() == cursor.idx + 1 {
+                        r_distr.remove_splitter();
+                        None
+                    } else {
+                        Some(r_distr.splitter_at(cursor.idx + 1).clone())
                     }
                 }
-                .map(|splitter| {
-                    r_distr.replace_splitter(splitter, idx);
-                });
-                return Ok(Some(seq));
             }
+            .map(|splitter| {
+                r_distr.replace_splitter(splitter, idx);
+            });
+            return Ok(Some(seq));
         }
         Ok(None)
     }
@@ -349,7 +346,7 @@ impl<T: Ord + Clone> Groups<T> {
             }
         }
 
-        if group.first_or_insert().len() > max_seq_len {
+        if !group.is_empty() && (group.first_or_insert().len() > max_seq_len) {
             Err((group_idx, 0))
         } else {
             Ok(())
