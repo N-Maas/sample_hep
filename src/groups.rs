@@ -76,6 +76,10 @@ impl<T: Ord> BufferHeap<T> {
     pub fn max(&self) -> Option<&T> {
         self.data.iter().max().map(|el| &el.0)
     }
+
+    pub fn count(&self) -> usize {
+        self.data.len()
+    }
 }
 
 #[derive(Debug)]
@@ -200,6 +204,10 @@ impl<T: Ord> BaseGroup<T> {
     // #[cfg(any(debug, test))]
     pub fn max(&self) -> Option<&T> {
         self.sequences.last().map(|s| s.max()).flatten()
+    }
+
+    pub fn count(&self) -> usize {
+        self.sequences.iter().map(|seq| seq.len()).sum()
     }
 }
 
@@ -401,6 +409,10 @@ impl<T: Ord> BufferedGroup<T> {
     // #[cfg(any(debug, test))]
     pub fn max(&self) -> Option<&T> {
         self.base.max().into_iter().chain(self.buffer.max()).max()
+    }
+
+    pub fn count(&self) -> usize {
+        self.base.count() + self.buffer.count()
     }
 }
 

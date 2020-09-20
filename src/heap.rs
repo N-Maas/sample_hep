@@ -35,12 +35,6 @@ impl<T: Ord + Clone> SampleHeap<T> {
 
     pub fn is_empty(&self) -> bool {
         let result = self.len == 0;
-        // TODO: remove this when sufficiently tested
-        debug_assert!(
-            self.insertion_heap.is_empty()
-                && self.groups.deletion_heap.is_empty()
-                && self.groups.group_list.iter().all(|g| g.is_empty()) == result
-        );
         result
     }
 
@@ -69,6 +63,8 @@ impl<T: Ord + Clone> SampleHeap<T> {
         if result.is_some() {
             self.len -= 1;
         }
+
+        debug_assert!(self.len() == self.groups.count() + self.insertion_heap.count());
         result
     }
 
@@ -83,6 +79,7 @@ impl<T: Ord + Clone> SampleHeap<T> {
                 self.insertion_heap.push(remaining).ok().unwrap();
             });
         self.len += 1;
+        debug_assert!(self.len() == self.groups.count() + self.insertion_heap.count());
     }
 }
 
@@ -108,11 +105,6 @@ impl<T: Ord + Clone> FlatHeap<T> {
 
     pub fn is_empty(&self) -> bool {
         let result = self.len == 0;
-        // TODO: remove this when sufficiently tested
-        debug_assert!(
-            self.groups.deletion_heap.is_empty()
-                && self.groups.group_list.iter().all(|g| g.is_empty()) == result
-        );
         result
     }
 
@@ -129,12 +121,15 @@ impl<T: Ord + Clone> FlatHeap<T> {
         if result.is_some() {
             self.len -= 1;
         }
+
+        debug_assert!(self.len() == self.groups.count());
         result
     }
 
     pub fn push(&mut self, el: T) {
         self.groups.insert_all(iter::once(el));
         self.len += 1;
+        debug_assert!(self.len() == self.groups.count());
     }
 }
 
@@ -196,7 +191,11 @@ impl<T: Ord + Clone> Groups<T> {
                     break;
                 }
                 Ok(None) => break,
-                Err((group_idx, seq_idx)) => self.handle_group_overflow(group_idx, seq_idx),
+                Err(vec) => {
+                    for (group_idx, seq_idx) in vec {
+                        self.handle_group_overflow(group_idx, seq_idx)
+                    }
+                }
             }
         }
         dbg_assertion!(self.structure_check());
@@ -206,30 +205,28 @@ impl<T: Ord + Clone> Groups<T> {
         rng: &mut Rand,
         r_distr: &mut RDistribute<T>,
         cursor: GroupCursor<T>,
-    ) -> Result<(), (usize, usize)> {
+    ) -> Result<(), Vec<(usize, usize)>> {
         if let Some(mut next) = GroupCursor::step(cursor.idx, cursor.tail) {
-            let max_elements = next.group.max_seq_len();
+            let mut max_elements = next.group.max_seq_len();
+            let mut refill_sequence = Sequence::new();
 
-            if let Some(seq) =
-                Self::pull_non_empty_sequence(rng, r_distr, next.split(), max_elements)?
-            {
-                let mut refill_sequence = mem::replace(seq, Sequence::new());
-                let mut max_elements =
-                    max_elements - usize::min(refill_sequence.len(), max_elements);
-
-                // TODO: avoid unnecessary copies
-                while let Some(seq) =
-                    Self::pull_non_empty_sequence(rng, r_distr, next.split(), max_elements)?
-                {
-                    max_elements -= seq.len();
-                    refill_sequence.append(seq);
+            let mut result = loop {
+                match Self::pull_non_empty_sequence(rng, r_distr, next.split(), max_elements) {
+                    Ok(Some(seq)) => {
+                        max_elements -= seq.len();
+                        refill_sequence.append(seq);
+                    }
+                    Ok(None) => break Ok(()),
+                    Err(e) => break Err(e),
                 }
+            };
 
+            if refill_sequence.len() > 0 {
                 // buffer is empty as a precondition of this function
                 let base_group = cursor.group.base_group();
                 Self::refill_group_from_sequence(rng, base_group, &mut refill_sequence);
 
-                Self::scan_and_split(rng, base_group).map(|(mut splitters, sequences)| {
+                if let Some((mut splitters, sequences)) = Self::scan_and_split(rng, base_group) {
                     // can not fail because scan_and_split does not return an empty iterator
                     let splitter = splitters.next_back().unwrap();
 
@@ -237,13 +234,19 @@ impl<T: Ord + Clone> Groups<T> {
                     if next.idx == r_distr.len() {
                         r_distr.add_splitter(splitter.clone());
                     }
+                    let result = &mut result;
                     Self::insert_sequences_to_group(
                         r_distr, next.idx, next.group, splitter, splitters, sequences,
-                    );
-                });
+                    )
+                    .unwrap_or_else(|err| match result {
+                        Ok(()) => *result = Err(vec![err]),
+                        Err(vec) => vec.push(err),
+                    });
+                }
             }
 
             dbg_assertion!(cursor.group.structure_check());
+            return result;
         }
         Ok(())
     }
@@ -255,10 +258,8 @@ impl<T: Ord + Clone> Groups<T> {
         r_distr: &mut RDistribute<T>,
         mut cursor: GroupCursor<'a, T>,
         max_elements: usize,
-    ) -> Result<Option<&'a mut Sequence<T>>, (usize, usize)> {
-        if let Some(i) = Self::resolve_overflow(cursor.group.clear_buffer()) {
-            return Err((cursor.idx, i));
-        }
+    ) -> Result<Option<&'a mut Sequence<T>>, Vec<(usize, usize)>> {
+        Self::resolve_overflow(cursor.group.clear_buffer()).map_err(|i| vec![(cursor.idx, i)])?;
         let base_group = cursor.group.base_group();
         if base_group.is_empty() {
             Self::refill_group(rng, r_distr, cursor.split())?;
@@ -267,26 +268,23 @@ impl<T: Ord + Clone> Groups<T> {
         let base_group = cursor.group.base_group();
         base_group.pop_empty();
         if let (splitter, Some(seq)) = base_group.pop_sequence_if(|s| s.len() <= max_elements) {
-            if seq.len() > 0 {
-                let idx = cursor.idx;
-                match splitter {
-                    Some(s) => Some(s),
-                    None => {
-                        if r_distr.len() == cursor.idx + 1 {
-                            // TODO: cache groups to avoid unnecessary allocation?
-                            // self.group_list.pop();
-                            r_distr.remove_splitter();
-                            None
-                        } else {
-                            Some(r_distr.splitter_at(cursor.idx + 1).clone())
-                        }
+            debug_assert!(seq.len() > 0);
+            let idx = cursor.idx;
+            match splitter {
+                Some(s) => Some(s),
+                None => {
+                    if r_distr.len() == cursor.idx + 1 {
+                        r_distr.remove_splitter();
+                        None
+                    } else {
+                        Some(r_distr.splitter_at(cursor.idx + 1).clone())
                     }
                 }
-                .map(|splitter| {
-                    r_distr.replace_splitter(splitter, idx);
-                });
-                return Ok(Some(seq));
             }
+            .map(|splitter| {
+                r_distr.replace_splitter(splitter, idx);
+            });
+            return Ok(Some(seq));
         }
         Ok(None)
     }
@@ -302,8 +300,9 @@ impl<T: Ord + Clone> Groups<T> {
             } else {
                 let group_idx = idx - 1;
                 let group = self.group_list[group_idx].as_mut();
-                Self::resolve_overflow(group.push(el))
-                    .map(|seq_idx| self.handle_group_overflow(group_idx, seq_idx));
+                Self::resolve_overflow(group.push(el)).unwrap_or_else(|seq_idx| {
+                    self.handle_group_overflow(group_idx, seq_idx)
+                });
             }
         }
 
@@ -322,7 +321,7 @@ impl<T: Ord + Clone> Groups<T> {
         splitter: T,
         splitters: impl Iterator<Item = T>,
         sequences: impl Iterator<Item = Sequence<T>>,
-    ) {
+    ) -> Result<(), (usize, usize)> {
         // TODO: incorrect order?!
         debug_assert!(group_idx < r_distr.len());
         debug_assert!(splitter <= *r_distr.splitter_at(group_idx));
@@ -345,7 +344,11 @@ impl<T: Ord + Clone> Groups<T> {
             }
         }
 
-        dbg_assertion!(group.first_or_insert().len() > max_seq_len || group.structure_check());
+        if !group.is_empty() && (group.first_or_insert().len() > max_seq_len) {
+            Err((group_idx, 0))
+        } else {
+            Ok(())
+        }
     }
 
     // TODO: use quickselect or a sampled element instead of sorting?
@@ -385,12 +388,10 @@ impl<T: Ord + Clone> Groups<T> {
                 splitter,
                 None.into_iter(),
                 iter::once(seq),
-            );
-
-            // handle overflow
-            if group.first_or_insert().len() > max_seq_len {
-                self.handle_group_overflow(0, 0);
-            }
+            )
+            .unwrap_or_else(|(group_idx, seq_idx)| {
+                self.handle_group_overflow(group_idx, seq_idx)
+            });
         }
 
         for el in elements.into_iter() {
@@ -406,6 +407,10 @@ impl<T: Ord + Clone> Groups<T> {
         let num_groups = self.r_distr.len();
         let base_group = self.group_list[group_idx].clear_buffer_forced();
         let max_seq_len = base_group.max_seq_len();
+
+        if base_group.sequence_at(seq_idx).len() <= max_seq_len {
+            return;
+        }
 
         // split the overflowing sequence, removing the biggest sequence from the group
         let (big_splitter, big_sequence) = Self::split_in_two(&mut self.rng, base_group, seq_idx)
@@ -452,12 +457,10 @@ impl<T: Ord + Clone> Groups<T> {
                 small_splitter,
                 splitters.collect::<Vec<_>>().into_iter().rev(),
                 sequences.rev(),
-            );
-
-            // handle overflow
-            if group.first_or_insert().len() > group.max_seq_len() {
-                self.handle_group_overflow(group_idx, 0);
-            }
+            )
+            .unwrap_or_else(|(group_idx, seq_idx)| {
+                self.handle_group_overflow(group_idx, seq_idx)
+            });
         }
 
         // it is very, really, extremely unlikely that an overflow happens here
@@ -584,15 +587,16 @@ impl<T: Ord + Clone> Groups<T> {
     /// If an error occurs, inserts the remaining elements and returns the index of the overflowing sequence.
     fn resolve_overflow<R, I: Iterator<Item = T>>(
         result: Result<R, GroupOverflowError<T, I>>,
-    ) -> Option<usize> {
-        result.err().map(
+    ) -> Result<(), usize> {
+        result.err().map_or(
+            Ok(()),
             |GroupOverflowError {
                  base_group,
                  seq_idx,
                  remaining,
              }| {
                 base_group.forced_insert_all(remaining);
-                seq_idx
+                Err(seq_idx)
             },
         )
     }
@@ -633,6 +637,14 @@ impl<T: Ord + Clone> Groups<T> {
             prev_max = group.max()
         }
         valid
+    }
+
+    pub fn count(&self) -> usize {
+        let mut count = self.deletion_heap.count();
+        for i in 0..self.r_distr.len() {
+            count += self.group_list[i].count()
+        }
+        count
     }
 }
 
