@@ -184,10 +184,8 @@ impl<T: Ord + Clone> Groups<T> {
         while let Some(cursor) = GroupCursor::new(&mut self.group_list) {
             match Self::pull_non_empty_sequence(&mut self.rng, &mut self.r_distr, cursor, _M) {
                 Ok(Some(seq)) => {
-                    for el in seq.drain() {
-                        // can not fail as one sequence of the first group always fits into the heap
-                        self.deletion_heap.push(el).ok().unwrap()
-                    }
+                    // can not fail as one sequence of the first group always fits into the heap
+                    self.deletion_heap.append(seq);
                     break;
                 }
                 Ok(None) => break,
@@ -388,6 +386,7 @@ impl<T: Ord + Clone> Groups<T> {
             .unwrap_or_else(|(group_idx, seq_idx)| self.handle_group_overflow(group_idx, seq_idx));
         }
 
+        // TODO
         for el in elements.into_iter() {
             // can not fail as the heap was emptied
             self.deletion_heap.push(el).ok().unwrap();
