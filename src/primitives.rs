@@ -588,8 +588,10 @@ impl<T: Ord> BHeap<T> {
             unsafe { (&mut self.data[self.len] as *mut T).write(el) };
             self.len += 1;
         }
-        if self.len > 1 {
-            self.recursive_build(0, self.len / 4);
+        if self.len >= 4 {
+            self.recursive_build(0, self.len / 8, self.len / 4 - 1);
+        } else {
+            self.build_base(0, true, true);
         }
     }
 
@@ -651,17 +653,40 @@ impl<T: Ord> BHeap<T> {
         }
     }
 
-    fn recursive_build(&mut self, idx: usize, range: usize) {
+    fn recursive_build(&mut self, idx: usize, range_lower: usize, range_upper: usize) {
         let left_child = 2 * idx + 1;
         let right_child = 2 * idx + 2;
         debug_assert!(idx < self.len);
         debug_assert!(left_child < self.len);
 
         // base case
-        if idx >= range {
+        if idx >= range_lower {
+            debug_assert!(idx <= range_upper);
+            if idx == range_upper {
+                self.build_base(left_child, true, true);
+                self.build_base(right_child, true, true);
+            } else {
+                self.build_base(left_child, false, false);
+                self.build_base(right_child, false, false);
+            }
+        } else {
+            self.recursive_build(left_child, range_lower, range_upper);
+            if right_child <= range_upper {
+                self.recursive_build(right_child, range_lower, range_upper);
+            } else if idx + 1 == range_lower {
+                self.build_base(right_child, false, false);
+            }
+        }
+        self.sift_down(idx);
+    }
+
+    #[inline(always)]
+    fn build_base(&mut self, idx: usize, check_left: bool, check_right: bool) {
+        let left_child = 2 * idx + 1;
+        if !check_left || (left_child < self.len) {
             unsafe {
                 let mut child = left_child + 1;
-                if child >= self.len
+                if (check_right && child >= self.len)
                     || self.data.get_unchecked(left_child) < self.data.get_unchecked(child)
                 {
                     child = left_child;
@@ -672,14 +697,7 @@ impl<T: Ord> BHeap<T> {
                     ptr::swap_nonoverlapping(current_val, next_val, 1);
                 }
             }
-            return;
         }
-
-        self.recursive_build(left_child, range);
-        if 2 * right_child + 1 < self.len {
-            self.recursive_build(right_child, range);
-        }
-        self.sift_down(idx);
     }
 }
 
