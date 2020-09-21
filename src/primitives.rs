@@ -4,6 +4,7 @@ use arrayvec::ArrayVec;
 use mem::MaybeUninit;
 use std::{
     borrow::Cow, cmp::Ordering, convert::AsRef, fmt::Debug, iter::FromIterator, mem, ops::IndexMut,
+    ptr,
 };
 
 const _SPLITS: usize = _K - 1;
@@ -327,9 +328,7 @@ pub(crate) struct RDistribute<T: Ord> {
 
 impl<T: Ord> RDistribute<T> {
     pub fn new() -> Self {
-        Self {
-            tree: Vec::new(),
-        }
+        Self { tree: Vec::new() }
     }
 
     pub fn distribute(&self, el: &T) -> usize {
@@ -524,6 +523,166 @@ impl<T: Ord> GroupBuffer<T> {
     }
 }
 
+#[derive(Debug)]
+pub(crate) struct BHeap<T: Ord> {
+    data: [T; _M],
+    len: usize,
+}
+
+impl<T: Ord> BHeap<T> {
+    pub fn new() -> Self {
+        Self {
+            data: unsafe { mem::zeroed() },
+            len: 0,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn peek(&self) -> &T {
+        debug_assert!(self.len > 0);
+        &self.data[0]
+    }
+
+    pub fn pop(&mut self) -> T {
+        debug_assert!(self.len > 0);
+        // TODO: can the compiler elide this check? -> seems not
+        assert!(self.len <= _M);
+
+        let mut val = unsafe { (&self.data[self.len - 1] as *const T).read() };
+        mem::swap(&mut self.data[0], &mut val);
+        self.sift_down(0);
+        self.len -= 1;
+        val
+    }
+
+    pub fn push(&mut self, el: T) {
+        debug_assert!(self.len < _M);
+        let mut pos = self.len;
+        unsafe { (&mut self.data[pos] as *mut T).write(el) };
+        self.len += 1;
+
+        while pos > 0 {
+            unsafe {
+                let next_pos = (pos - 1) / 2;
+                if self.data.get_unchecked(pos) < self.data.get_unchecked(next_pos) {
+                    ptr::swap_nonoverlapping(
+                        self.data.get_unchecked_mut(pos),
+                        self.data.get_unchecked_mut(next_pos),
+                        1,
+                    );
+                    pos = next_pos;
+                } else {
+                    return;
+                }
+            }
+        }
+    }
+
+    pub fn refill_from_sequence(&mut self, seq: &mut Sequence<T>) {
+        debug_assert!(self.len == 0);
+        debug_assert!(seq.len() <= _M);
+        for el in seq.drain() {
+            unsafe { (&mut self.data[self.len] as *mut T).write(el) };
+            self.len += 1;
+        }
+        if self.len > 1 {
+            self.recursive_build(0, self.len / 4);
+        }
+    }
+
+    pub fn get_as_vec(&mut self) -> Vec<T> {
+        assert!(self.len <= _M);
+        let mut vec = Vec::with_capacity(self.len);
+        for i in 0..self.len {
+            vec.push(unsafe { (&self.data[i] as *const T).read() });
+        }
+        self.len = 0;
+        vec
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        assert!(self.len <= _M);
+        self.data[0..self.len].iter()
+    }
+
+    fn sift_down(&mut self, mut pos: usize) {
+        let range = ((self.len + 1).next_power_of_two() / 2) - 1;
+
+        let mut left_child = 2 * pos + 1;
+        while left_child < range {
+            unsafe {
+                let right_child = left_child + 1;
+                let next_pos = left_child
+                    + if self.data.get_unchecked(left_child) < self.data.get_unchecked(right_child)
+                    {
+                        0
+                    } else {
+                        1
+                    };
+                let current_val: *mut _ = self.data.get_unchecked_mut(pos);
+                let next_val: *mut _ = self.data.get_unchecked_mut(next_pos);
+                if *current_val <= *next_val {
+                    return;
+                }
+
+                ptr::swap_nonoverlapping(current_val, next_val, 1);
+                pos = next_pos;
+                left_child = 2 * pos + 1;
+            }
+        }
+
+        if left_child < self.len {
+            unsafe {
+                let mut child = left_child + 1;
+                if child >= self.len
+                    || self.data.get_unchecked(left_child) < self.data.get_unchecked(child)
+                {
+                    child = left_child;
+                }
+                let current_val: *mut _ = self.data.get_unchecked_mut(pos);
+                let next_val: *mut _ = self.data.get_unchecked_mut(child);
+                if *next_val < *current_val {
+                    ptr::swap_nonoverlapping(current_val, next_val, 1);
+                }
+            }
+        }
+    }
+
+    fn recursive_build(&mut self, idx: usize, range: usize) {
+        let left_child = 2 * idx + 1;
+        let right_child = 2 * idx + 2;
+        debug_assert!(idx < self.len);
+        debug_assert!(left_child < self.len);
+
+        // base case
+        if idx >= range {
+            unsafe {
+                let mut child = left_child + 1;
+                if child >= self.len
+                    || self.data.get_unchecked(left_child) < self.data.get_unchecked(child)
+                {
+                    child = left_child;
+                }
+                let current_val: *mut _ = self.data.get_unchecked_mut(idx);
+                let next_val: *mut _ = self.data.get_unchecked_mut(child);
+                if *next_val < *current_val {
+                    ptr::swap_nonoverlapping(current_val, next_val, 1);
+                }
+            }
+            return;
+        }
+
+        self.recursive_build(left_child, range);
+        if 2 * right_child + 1 < self.len {
+            self.recursive_build(right_child, range);
+        }
+        self.sift_down(idx);
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -664,5 +823,43 @@ mod test {
         distr.insert_splitter_at(_K / 2, _K / 2, false);
         assert_eq!(*distr.splitter_at(0), 1);
         assert_eq!(*distr.splitter_at(_SPLITS - 1), _SPLITS - 2);
+    }
+
+    #[test]
+    fn test_bheap_basic() {
+        let mut bheap = BHeap::new();
+        bheap.push(0);
+        bheap.push(1);
+        bheap.push(3);
+        bheap.push(2);
+        bheap.push(4);
+
+        assert_eq!(bheap.pop(), 0);
+        assert_eq!(bheap.pop(), 1);
+        assert_eq!(bheap.pop(), 2);
+        assert_eq!(bheap.pop(), 3);
+        assert_eq!(bheap.pop(), 4);
+
+        for i in (0.._M).rev() {
+            bheap.push(i);
+        }
+        for i in 0.._M {
+            assert_eq!(bheap.pop(), i);
+        }
+    }
+
+    #[test]
+    fn test_bheap_refill() {
+        let mut bheap = BHeap::new();
+        for i in 0..=_M {
+            let mut seq = Sequence::new();
+            for j in (0..i).rev() {
+                seq.push(j);
+            }
+            bheap.refill_from_sequence(&mut seq);
+            for j in 0..i {
+                assert_eq!(bheap.pop(), j);
+            }
+        }
     }
 }

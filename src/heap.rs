@@ -73,7 +73,8 @@ impl<T: Ord + Clone> SampleHeap<T> {
             .unwrap_or_else(|HeapOverflowError(remaining)| {
                 // The remaining element should not be appended to the iterator, because this would an unnecessary
                 // overflow of the deletion heap when emptying the insertion heap for the first time.
-                self.groups.insert_all(self.insertion_heap.drain());
+                self.groups
+                    .insert_all(self.insertion_heap.get_as_vec().into_iter());
                 // can not fail as the heap was emptied
                 self.insertion_heap.push(remaining).ok().unwrap();
             });
@@ -299,9 +300,8 @@ impl<T: Ord + Clone> Groups<T> {
             } else {
                 let group_idx = idx - 1;
                 let group = self.group_list[group_idx].as_mut();
-                Self::resolve_overflow(group.push(el)).unwrap_or_else(|seq_idx| {
-                    self.handle_group_overflow(group_idx, seq_idx)
-                });
+                Self::resolve_overflow(group.push(el))
+                    .unwrap_or_else(|seq_idx| self.handle_group_overflow(group_idx, seq_idx));
             }
         }
 
@@ -354,11 +354,8 @@ impl<T: Ord + Clone> Groups<T> {
     fn handle_deletion_heap_overflow(&mut self, remaining: T) {
         let max_seq_len = _M;
 
-        let mut elements: Vec<T> = self
-            .deletion_heap
-            .drain()
-            .chain(iter::once(remaining))
-            .collect();
+        let mut elements: Vec<T> = self.deletion_heap.get_as_vec();
+        elements.push(remaining);
         elements.sort();
         debug_assert!(elements.len() == _M + 1);
 
@@ -388,9 +385,7 @@ impl<T: Ord + Clone> Groups<T> {
                 None.into_iter(),
                 iter::once(seq),
             )
-            .unwrap_or_else(|(group_idx, seq_idx)| {
-                self.handle_group_overflow(group_idx, seq_idx)
-            });
+            .unwrap_or_else(|(group_idx, seq_idx)| self.handle_group_overflow(group_idx, seq_idx));
         }
 
         for el in elements.into_iter() {
@@ -457,9 +452,7 @@ impl<T: Ord + Clone> Groups<T> {
                 splitters.collect::<Vec<_>>().into_iter().rev(),
                 sequences.rev(),
             )
-            .unwrap_or_else(|(group_idx, seq_idx)| {
-                self.handle_group_overflow(group_idx, seq_idx)
-            });
+            .unwrap_or_else(|(group_idx, seq_idx)| self.handle_group_overflow(group_idx, seq_idx));
         }
 
         // it is very, really, extremely unlikely that an overflow happens here

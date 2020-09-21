@@ -30,26 +30,34 @@ impl<'a, T: Ord, I: Iterator<Item = T>> GroupOverflowError<'a, T, I> {
 #[derive(Debug)]
 pub(crate) struct BufferHeap<T: Ord> {
     // currently, we are building a min heap
-    data: BinaryHeap<Reverse<T>>,
+    data: Box<BHeap<T>>,
 }
 
 impl<T: Ord> BufferHeap<T> {
     pub fn new() -> Self {
         Self {
-            data: BinaryHeap::with_capacity(_M),
+            data: Box::new(BHeap::new()),
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
+        self.data.len() == 0
     }
 
     pub fn peek(&self) -> Option<&T> {
-        self.data.peek().map(|el| &el.0)
+        if self.data.len() > 0 {
+            Some(self.data.peek())
+        } else {
+            None
+        }
     }
 
     pub fn pop(&mut self) -> Option<T> {
-        self.data.pop().map(|el| el.0)
+        if self.data.len() > 0 {
+            Some(self.data.pop())
+        } else {
+            None
+        }
     }
 
     pub fn push(&mut self, el: T) -> Result<(), HeapOverflowError<T>> {
@@ -57,14 +65,24 @@ impl<T: Ord> BufferHeap<T> {
         if self.data.len() == _M {
             Err(HeapOverflowError(el))
         } else {
-            self.data.push(Reverse(el));
+            self.data.push(el);
             Ok(())
         }
     }
 
-    pub fn drain<'a>(&'a mut self) -> impl Iterator<Item = T> + 'a {
-        // TODO unnecessary copying when emptying deletion heap?
-        self.data.drain().map(|el| el.0)
+    pub fn append(&mut self, seq: &mut Sequence<T>) {
+        debug_assert!(self.is_empty());
+        self.data.refill_from_sequence(seq)
+    }
+
+    // pub fn drain(&mut self) -> impl Iterator<Item = T> {
+    //     // TODO unnecessary copying when emptying deletion heap?
+    //     self.data.drain().map(|el| el.0)
+    // }
+
+    // TODO
+    pub fn get_as_vec(&mut self) -> Vec<T> {
+        self.data.get_as_vec()
     }
 
     // // #[cfg(any(debug, test))]
@@ -74,7 +92,7 @@ impl<T: Ord> BufferHeap<T> {
 
     // #[cfg(any(debug, test))]
     pub fn max(&self) -> Option<&T> {
-        self.data.iter().max().map(|el| &el.0)
+        self.data.iter().max()
     }
 
     pub fn count(&self) -> usize {
